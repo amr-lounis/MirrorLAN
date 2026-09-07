@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Rooms</title>
+<style>
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:#0f1115;color:#eef1f6;font-family:system-ui;display:flex;justify-content:center;padding:24px 16px}
+.card{width:100%;max-width:520px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:#8b93a7;font-size:13px;margin:0 0 18px}
+h2{font-size:12px;color:#8b93a7;margin:18px 0 8px;font-weight:600;letter-spacing:.5px}
+.row{display:flex;align-items:center;gap:10px;background:#171a21;border:1px solid #2a2f3a;border-radius:12px;padding:10px 12px;margin:8px 0}
+.dot{width:10px;height:10px;border-radius:50%;background:#22c55e;flex:none}
+.dot.idle{background:#555}
+.name{flex:1;font-family:Consolas,monospace;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.count{color:#8b93a7;font-size:12px;flex:none}
+button{background:#4f7cff;color:#fff;border:0;border-radius:10px;padding:9px 16px;font-weight:700;font-size:14px;cursor:pointer;flex:none}
+button:active{transform:scale(.96)}
+button.green{background:#22c55e;color:#04120a}
+.newrow{display:flex;gap:8px}
+input{flex:1;background:#171a21;color:#eef1f6;border:1px solid #2a2f3a;border-radius:10px;padding:10px 12px;font-size:14px;font-family:Consolas,monospace;min-width:0}
+input:focus{outline:none;border-color:#4f7cff}
+.empty{color:#8b93a7;font-size:13px;padding:12px 2px}
+.err{color:#ef4444;font-size:13px;padding:12px 2px;display:none}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Rooms</h1>
+<p class="sub">Watch a live screen or start a new room.</p>
+<h2>LIVE</h2>
+<div id="list"><div class="empty" id="empty">No live rooms.</div></div>
+<div class="err" id="err">Cannot reach server - open this page via https://SERVER/ instead of file://</div>
+<h2>NEW ROOM</h2>
+<div class="newrow">
+<input id="name" placeholder="room-name" maxlength="32" autocapitalize="off" autocomplete="off" spellcheck="false">
+<button class="green" id="create">Share</button>
+</div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const ROOM_OK = /^[a-z0-9\-_]{1,32}$/;
+
+function clean(v){ return (v || '').toLowerCase().trim(); }
+
+async function refresh(){
+  try{
+    const r = await fetch('api/rooms');
+    if(!r.ok) throw new Error(r.status);
+    $('err').style.display = 'none';
+    const data = await r.json();
+    const box = $('list');
+    box.querySelectorAll('.row').forEach(e => e.remove());
+    const rooms = (data.rooms || []).filter(x => x.live);
+    $('empty').style.display = rooms.length ? 'none' : 'block';
+    for(const x of rooms){
+      const row = document.createElement('div');
+      row.className = 'row';
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = x.room || '(default)';
+      const btn = document.createElement('button');
+      btn.textContent = 'Watch';
+      const room = x.room;
+      btn.onclick = () => { location.href = 'Viewer.html' + (room ? '?room=' + encodeURIComponent(room) : ''); };
+      row.append(dot, name, btn);
+      box.append(row);
+    }
+  }catch(e){ $('err').style.display = 'block'; }
+}
+
+$('create').onclick = () => {
+  const v = clean($('name').value);
+  if(!ROOM_OK.test(v)){ $('name').focus(); return; }
+  location.href = 'Sharer.html?room=' + encodeURIComponent(v);
+};
+$('name').addEventListener('keydown', e => { if(e.key === 'Enter') $('create').click(); });
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

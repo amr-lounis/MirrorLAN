@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Screen Server</title>
+<style>
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:#000;font-family:system-ui;overflow:hidden}
+.stage{position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center}
+.stage video{width:100%;height:100%;object-fit:contain;background:#000}
+.stage.fs video{object-fit:contain}
+.count{position:absolute;top:calc(10px + env(safe-area-inset-top));right:14px;min-width:30px;height:30px;padding:0 8px;border-radius:999px;background:rgba(0,0,0,.45);color:#fff;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:5}
+.bar{position:absolute;bottom:calc(12px + env(safe-area-inset-bottom));left:0;right:0;display:flex;justify-content:center;gap:8px;opacity:.35;transition:opacity .25s,transform .35s;transform:translateY(0)}
+.stage:hover .bar,.bar:focus-within{opacity:1}
+.bar.hidden{opacity:0;transform:translateY(150%);pointer-events:none}
+button{background:rgba(34,197,94,.9);color:#000;border:0;width:52px;height:52px;border-radius:50%;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+button.danger{background:rgba(239,68,68,.9);color:#fff}
+button.blue{background:rgba(79,124,255,.9);color:#fff}
+button:disabled{opacity:.3}
+button:active{transform:scale(.94)}
+button svg{display:block}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+<video id="preview" autoplay muted playsinline></video>
+<div class="count" id="count">0</div>
+<div class="bar" id="bar">
+<button id="share" title="Share" aria-label="Share"><svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg></button>
+<button id="stop" class="danger" title="Stop" aria-label="Stop" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="1"/></svg></button>
+<button id="full" class="blue" title="Fullscreen" aria-label="Fullscreen"></button>
+</div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const preview = $('preview');
+let screenStream = null, pcs = {}, pollTimer = null;
+
+function log(t){ console.log(t); }
+function api(p){ return fetch(p).then(r => { if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
+
+function updateViewers(){
+  const n = Object.keys(pcs).length;
+  $('count').textContent = n;
+  log('viewers: ' + n);
+}
+
+const ROOM = ((new URLSearchParams(location.search).get('room') || '').toLowerCase().match(/^[a-z0-9\-_]{0,32}$/) || [''])[0];
+log('room: ' + (ROOM || '(default)'));
+
+async function pollOffers(){
+  roomPing(false);
+  try{
+    const r = await fetch('api/claim', { method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ room: ROOM }) });
+    if(r.ok){
+      const o = await r.json();
+      if(o.id && o.sdp && !pcs[o.id]) await serveViewer(o.id, o.sdp);
+    }
+  }catch(e){ /* server not reachable yet */ }
+  updateViewers();
+}
+
+async function serveViewer(id, offerSdp){
+  try{
+    const pc = new RTCPeerConnection({ iceServers: [] }); // LAN only, offline
+    pcs[id] = pc;
+    screenStream.getTracks().forEach(t => pc.addTrack(t, screenStream));
+    pc.onconnectionstatechange = () => {
+      updateViewers();
+      const s = pc.connectionState;
+      if(s === 'failed') log('viewer ' + id + ' failed - check same network');
+      if(s === 'closed' || s === 'disconnected' || s === 'failed'){
+        setTimeout(() => { try{pc.close();}catch(e){} if(pcs[id]===pc) delete pcs[id]; updateViewers(); }, 5000);
+      }
+    };
+    // server is sendonly, no incoming media expected
+    await pc.setRemoteDescription({ type: 'offer', sdp: offerSdp });
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    // wait for ICE gather to complete for non-trickle answer
+    await new Promise(res => {
+      if(pc.iceGatheringState === 'complete') return res();
+      const f = () => { if(pc.iceGatheringState === 'complete'){ pc.removeEventListener('icegatheringstatechange', f); res(); } };
+      pc.addEventListener('icegatheringstatechange', f);
+      setTimeout(res, 3000);
+    });
+    await fetch('api/answer', { method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ id, sdp: pc.localDescription.sdp, room: ROOM }) });
+    log('serving viewer ' + id);
+  }catch(e){
+    console.error(e);
+    delete pcs[id];
+    log('serve failed for ' + id + ': ' + e.message);
+  }
+}
+
+$('share').onclick = async () => {
+  try{
+    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: true });
+  }catch(e){
+    try{ screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true }); }
+    catch(e2){ alert('Screen capture failed: ' + e2.name); log('capture failed: ' + e2.message); return; }
+  }
+  preview.srcObject = screenStream;
+  $('share').disabled = true;
+  $('stop').disabled = false;
+  log('sharing live');
+  screenStream.getVideoTracks()[0].addEventListener('ended', stopAll);
+  pollTimer = setInterval(pollOffers, 1500);
+  pollOffers();
+};
+
+function roomPing(leave){
+  try{
+    const body = JSON.stringify({ room: ROOM });
+    if(leave && navigator.sendBeacon) navigator.sendBeacon('api/sharer/leave', new Blob([body], {type:'application/json'}));
+    else fetch(leave ? 'api/sharer/leave' : 'api/sharer/heartbeat', { method:'POST', headers:{'Content-Type':'application/json'}, body, keepalive:true });
+  }catch(e){}
+}
+
+function stopAll(){
+  roomPing(true);
+  if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+  for(const id of Object.keys(pcs)){ try{pcs[id].close();}catch(e){} }
+  pcs = {};
+  if(screenStream){ try{screenStream.getTracks().forEach(t=>t.stop());}catch(e){} screenStream = null; }
+  preview.srcObject = null;
+  $('share').disabled = false;
+  $('stop').disabled = true;
+  updateViewers();
+  log('stopped');
+}
+$('stop').onclick = stopAll;
+
+const ICON_EXPAND = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+const ICON_MIN = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
+function fsOn(){ return $('stage').classList.contains('fs') || !!document.fullscreenElement; }
+function paintFsBtn(){ $('full').innerHTML = fsOn() ? ICON_MIN : ICON_EXPAND; }
+paintFsBtn();
+$('full').onclick = async () => {
+  const stage = $('stage');
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  try{
+    if(fsOn()){ stage.classList.remove('fs'); if(document.fullscreenElement) await document.exitFullscreen(); }
+    else if(stage.requestFullscreen && !ios) await stage.requestFullscreen();
+    else stage.classList.add('fs');
+  }catch(e){ stage.classList.add('fs'); }
+  paintFsBtn();
+};
+document.addEventListener('fullscreenchange', () => {
+  if(!document.fullscreenElement) $('stage').classList.remove('fs');
+  paintFsBtn();
+});
+
+let idleT = null;
+function poke(){
+  $('bar').classList.remove('hidden');
+  if(idleT) clearTimeout(idleT);
+  idleT = setTimeout(() => $('bar').classList.add('hidden'), 5000);
+}
+['touchstart','mousemove','mousedown','keydown','wheel','click'].forEach(ev => document.addEventListener(ev, poke, {passive:true}));
+poke();
+window.addEventListener('beforeunload', () => { try{stopAll();}catch(e){} });
+</script>
+</body>
+</html>

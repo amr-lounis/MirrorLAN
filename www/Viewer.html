@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Screen Viewer</title>
+<style>
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:#000;font-family:system-ui;overflow:hidden}
+.stage{position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center}
+.stage video{width:100%;height:100%;object-fit:contain;background:#000}
+.stage.fs video{object-fit:contain}
+.bar{position:absolute;bottom:calc(12px + env(safe-area-inset-bottom));left:0;right:0;display:flex;justify-content:center;gap:8px;opacity:.35;transition:opacity .25s,transform .35s;transform:translateY(0)}
+.stage:hover .bar,.bar:focus-within{opacity:1}
+.bar.hidden{opacity:0;transform:translateY(150%);pointer-events:none}
+button{background:rgba(79,124,255,.9);color:#fff;border:0;width:52px;height:52px;border-radius:50%;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+button:active{transform:scale(.94)}
+button svg{display:block}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+<video id="remote" autoplay playsinline></video>
+<div class="bar" id="bar">
+<button id="watch" title="Watch" aria-label="Watch"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+<button id="leave" title="Leave" aria-label="Leave"><svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+<button id="full" title="Fullscreen" aria-label="Fullscreen"></button>
+</div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const remoteV = $('remote');
+let pc = null, vid = null, pollTimer = null;
+
+function log(t){ console.log(t); }
+function makeId(){ return 'v-' + Math.random().toString(36).slice(2,8); }
+const ROOM = ((new URLSearchParams(location.search).get('room') || '').toLowerCase().match(/^[a-z0-9\-_]{0,32}$/) || [''])[0];
+log('room: ' + (ROOM || '(default)'));
+
+async function watch(){
+  leave(false);
+  vid = makeId();
+  log('connecting as ' + vid + ' ...');
+  try{
+    pc = new RTCPeerConnection({ iceServers: [] }); // LAN only
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+    pc.ontrack = e => { if(e.streams[0]){ remoteV.srcObject = e.streams[0]; remoteV.play().catch(()=>{}); } };
+    pc.onconnectionstatechange = () => {
+      if(!pc) return;
+      log('connection: ' + pc.connectionState);
+    };
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    // wait for local gather (non-trickle)
+    await new Promise(res => {
+      if(pc.iceGatheringState === 'complete') return res();
+      const f = () => { if(pc.iceGatheringState === 'complete'){ pc.removeEventListener('icegatheringstatechange', f); res(); } };
+      pc.addEventListener('icegatheringstatechange', f);
+      setTimeout(res, 3000);
+    });
+    await fetch('api/offer', { method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ id: vid, sdp: pc.localDescription.sdp, room: ROOM }) });
+    log('offer sent, waiting for server answer...');
+    pollTimer = setInterval(async () => {
+      try{
+        const r = await fetch('api/answer?id=' + encodeURIComponent(vid) + '&room=' + encodeURIComponent(ROOM));
+        if(!r.ok) return;
+        const data = await r.json();
+        if(data.sdp){
+          clearInterval(pollTimer); pollTimer = null;
+          await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
+          log('connected - receiving screen');
+        }
+      }catch(e){}
+    }, 1200);
+  }catch(e){
+    console.error(e);
+    log('error: ' + e.message);
+  }
+}
+
+function leave(msg = true){
+  if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+  if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM}), keepalive: true }); }catch(e){} }
+  if(pc){ try{pc.close();}catch(e){} pc = null; }
+  remoteV.srcObject = null;
+  if(msg) log('left');
+}
+$('watch').onclick = watch;
+$('leave').onclick = () => leave(true);
+const ICON_EXPAND = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+const ICON_MIN = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
+function fsOn(){ return $('stage').classList.contains('fs') || !!document.fullscreenElement; }
+function paintFsBtn(){ $('full').innerHTML = fsOn() ? ICON_MIN : ICON_EXPAND; }
+paintFsBtn();
+$('full').onclick = async () => {
+  const stage = $('stage');
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  try{
+    if(fsOn()){ stage.classList.remove('fs'); if(document.fullscreenElement) await document.exitFullscreen(); }
+    else if(stage.requestFullscreen && !ios) await stage.requestFullscreen();
+    else stage.classList.add('fs');
+  }catch(e){ stage.classList.add('fs'); }
+  paintFsBtn();
+};
+document.addEventListener('fullscreenchange', () => {
+  if(!document.fullscreenElement) $('stage').classList.remove('fs');
+  paintFsBtn();
+});
+window.addEventListener('beforeunload', () => leave(false));
+let idleT = null;
+function poke(){
+  $('bar').classList.remove('hidden');
+  if(idleT) clearTimeout(idleT);
+  idleT = setTimeout(() => $('bar').classList.add('hidden'), 5000);
+}
+['touchstart','mousemove','mousedown','keydown','wheel','click'].forEach(ev => document.addEventListener(ev, poke, {passive:true}));
+poke();
+</script>
+</body>
+</html>
