@@ -41,7 +41,7 @@ class Config:
     www_dir: str = field(default_factory=lambda: _resource("www"))
     cert_file: str = field(default_factory=lambda: os.path.join(APP_DIR, "cert.pem"))
     key_file: str = field(default_factory=lambda: os.path.join(APP_DIR, "key.pem"))
-    common_name: str = "LAN-Screen-Share"
+    common_name: str = "MirrorLAN"
     cert_days: int = 3650
     dns_names: Tuple[str, ...] = ("localhost",)
     max_id_len: int = 64

@@ -35,7 +35,7 @@ class ServerGui:
         self.config = config or Config()
         self.manager = ServerManager(self.config)
         self._rows: list = []
-        root.title("LAN Server")
+        root.title("MirrorLAN")
         try:
             from .config import APP_DIR
             root.iconbitmap(os.path.join(APP_DIR, "app.ico"))
@@ -50,7 +50,7 @@ class ServerGui:
         head.pack(fill="x", padx=18, pady=(16, 6))
         titles = tk.Frame(head, bg=BG)
         titles.pack(side="left")
-        tk.Label(titles, text="LAN Server", font=TITLE, bg=BG, fg=FG).pack(anchor="w")
+        tk.Label(titles, text="MirrorLAN", font=TITLE, bg=BG, fg=FG).pack(anchor="w")
         tk.Label(titles, text="HTTPS screen share  •  offline",
                  font=SUB, bg=BG, fg=MUTED).pack(anchor="w")
         pill = tk.Frame(head, bg=CARD, highlightthickness=1, highlightbackground=BORDER,

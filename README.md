@@ -1,8 +1,10 @@
-# LANServer
+# MirrorLAN
 
 Tiny HTTPS server for LAN screen sharing, with a Tkinter control panel and a minimal WebRTC signaling API.
 
 It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over TLS, redirects plain HTTP to HTTPS, and exposes a few `/api/*` endpoints so sharers and viewers can exchange offers/answers on the local network. Self-signed ECDSA certificates are generated with the standard library only — no OpenSSL needed.
+
+![MirrorLAN running with LAN addresses](readme/02.JPG)
 
 ## Features
 
@@ -11,6 +13,15 @@ It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over TLS, redirects
 - Tkinter GUI: pick a port, Start/Stop, copy LAN addresses
 - Self-signed certs (stdlib only, SANs for LAN IPs)
 - Single-file Windows build via PyInstaller (`build.bat`)
+
+## How it works
+
+1. The **sharer** opens `https://<server>/`, types a room name, and presses **Share** — the page captures the screen/window and sends a heartbeat so the room stays listed as live.
+2. A **viewer** on another device opens the same address, sees the live room, and presses **Watch** — the page posts a WebRTC offer to `/api/offer`.
+3. The sharer claims the offer (`/api/claim`), replies with an answer (`/api/answer`), and the viewer picks it up.
+4. Video/audio then flows **directly browser-to-browser** (WebRTC peer connection) — the server only relays the signaling, it never sees the media.
+
+Rooms are in-memory only: a room disappears ~15 s after the sharer closes the page (missed heartbeats), and everything is cleared on server restart. Room names allow `a-z 0-9 - _` only, max 32 chars.
 
 ## Screenshots
 
@@ -29,7 +40,7 @@ Open the address in a browser, type a room name, and press **Share**.
 
 ### 3. Choose what to share
 
-The browser asks what to share — a single window or the entire screen.
+The browser asks what to share — a single window or the entire screen (see [Monitor capture](#monitor-capture) · [Window capture](#window-capture)).
 
 ![Share a window](readme/05-window.JPG)
 ![Share the entire screen](readme/06-monitore.JPG)
@@ -45,6 +56,46 @@ The sharer view shows the stream with the viewer count on top.
 The room appears as live — press **Watch** to view the shared screen.
 
 ![Live room](readme/07.JPG)
+
+## Monitor capture
+
+Share a full display through the browser picker (`Entire Screen` tab):
+
+1. On the rooms page, type a room name and press **Share**.
+2. In the browser dialog, open the **Entire Screen** tab, pick the display, optionally enable **Share with system audio**, and confirm.
+
+Behavior:
+
+- **Frame rate**: requested at ~15 fps (up to 30) — smooth enough for demos and docs while staying light on the LAN.
+- **Audio**: system audio is requested when the browser allows it; if the browser refuses audio, sharing continues video-only automatically.
+- **Cursor**: the mouse pointer is part of the capture, as rendered by the OS.
+- **Viewer count**: the badge on the sharer page shows live WebRTC connections.
+- **Stop**: red stop button, the browser's own "Stop sharing" control, or just close the tab — the room is freed immediately (closing the tab also notifies the server, otherwise the room drops after ~15 s of missed heartbeats).
+- **Offline-friendly**: peer connections use no STUN/TURN (`iceServers: []`) — everything stays on the LAN and works without internet.
+
+### Extend display to any browser device
+
+Turn any phone, tablet, or TV browser into a wireless second monitor:
+
+1. On Windows, extend your desktop: **Settings → System → Display → Extend these displays** (or `Win+P` → Extend). With a single physical screen, create a virtual one with https://github.com/VirtualDrivers/Virtual-Display-Driver
+
+![Extended displays in Windows settings](readme/ExtendDisplay.JPG)
+2. In MirrorLAN, press **Share** and pick the extended/virtual display under the **Entire Screen** tab.
+3. Open the room from the other device's browser and press **Watch** — it now shows your second screen.
+
+## Window capture
+
+Share one app window instead of the whole screen (browser picker → `Window` tab):
+
+1. On the rooms page, type a room name and press **Share**.
+2. In the browser dialog, open the **Window** tab, pick the app window, and confirm.
+
+Behavior:
+
+- The window picture is **isolated**: overlapping windows on your desktop do not leak into the stream.
+- **Close the shared window**: capture ends automatically (track-ended detection) — sharing stops and the room is freed, no stuck "live" room.
+- **Minimize**: the stream keeps running; what viewers see while minimized depends on the browser (usually the last frame).
+- Same URL/heartbeat/viewer-count behavior as monitor mode. Switching between window and screen requires pressing Share again and picking a new source.
 
 ## Requirements
 
@@ -67,7 +118,14 @@ python main.py --serve 8443
 python main.py --serve 8443 --dir ./site
 ```
 
-First run creates `cert.pem` / `key.pem` next to `main.py` (or next to the `.exe` when frozen). Browsers will warn about the self-signed cert — accept it once on each client, or install the cert.
+First run creates `cert.pem` / `key.pem` next to `main.py` (or next to the `.exe` when frozen). Headless mode prints the LAN addresses to the console.
+
+Then on any device on the same network, open `https://<LAN-IP>/` (or `https://<LAN-IP>:8443/` for a custom port) in a browser. The browser will warn about the self-signed certificate — accept it once per device (or install `cert.pem` as trusted).
+
+GUI buttons:
+
+- **Copy** / **Copy All** — copy one or all LAN addresses to the clipboard
+- **Make Cert** — generate `cert.pem` / `key.pem` if missing (valid ~10 years, includes current LAN IPs; delete both files and press again to regenerate, e.g. after your IP changes)
 
 ## Build the .exe (Windows)
 
@@ -75,7 +133,7 @@ First run creates `cert.pem` / `key.pem` next to `main.py` (or next to the `.exe
 build.bat
 ```
 
-Output: `dist\LANServer.exe` (one file, GUI, no console). Double-click it — the GUI starts and certs are created automatically.
+Output: `dist\MirrorLAN.exe` (one file, GUI, no console). Double-click it — the GUI starts and certs are created automatically.
 
 ## Project layout
 
@@ -114,6 +172,24 @@ CLI flags: `--serve [PORT]`, `--dir PATH`, `--https-port PORT`, `--http-port POR
 - `POST /api/claim` `{room}` — sharer claims the next offer (404 `empty`)
 - `POST /api/leave` `{id, room}` — remove an offer/answer
 - `POST /api/sharer/heartbeat` `{room}` / `POST /api/sharer/leave` `{room}`
+
+## Security
+
+LAN-trust model — anyone on your local network with the URL can create and watch rooms:
+
+- Traffic is TLS-encrypted, but the certificate is **self-signed** (browsers show a warning until accepted/trusted).
+- There is **no password or access code** — for a trusted home/office LAN only, do not expose to the internet.
+- Abuse limits: room names `a-z 0-9 - _` (max 32), viewer IDs (max 64), SDP blobs (max 200 KB) — oversized/invalid signaling is rejected with `400`.
+- The HTTPS API sends `Access-Control-Allow-Origin: *` (handy for local dev, open by design).
+
+## Troubleshooting
+
+- **Port 443 needs admin** — run as administrator, or use a high port (`python main.py --serve 8443`), no admin needed.
+- **Windows Firewall prompt** on first start — allow access for private networks so other devices can connect.
+- **Browser says "not secure"** — expected for a self-signed cert; accept/continue, or install `cert.pem` as a trusted certificate.
+- **"Cannot bind port"** — another app uses the port; pick a different one.
+- **Room stays listed after closing** — it drops automatically after ~15 s of missed heartbeats.
+- **Moved to another network / IP changed** — delete `cert.pem` + `key.pem` and press **Make Cert** (or restart) so the new IPs land in the certificate.
 
 ## License
 

@@ -139,7 +139,7 @@ def _ecdsa_sign(priv: int, digest: bytes) -> Tuple[int, int]:
 
 def generate_self_signed(dns_names: List[str], ip_list: List[str],
                          days: int = 3650,
-                         common_name: str = "LAN-Screen-Share") -> Tuple[str, str]:
+                         common_name: str = "MirrorLAN") -> Tuple[str, str]:
     """Build a self-signed server certificate. Returns (cert_pem, key_pem)."""
     oid_pub, oid_curve, oid_sig = _oids()
     priv = (int.from_bytes(os.urandom(32), "big") % (_EC_N - 1)) + 1
@@ -203,7 +203,7 @@ def generate_self_signed(dns_names: List[str], ip_list: List[str],
 
 def ensure_cert_files(cert_path: str, key_path: str, dns_names: List[str],
                       ip_list: List[str], days: int = 3650,
-                      common_name: str = "LAN-Screen-Share") -> bool:
+                      common_name: str = "MirrorLAN") -> bool:
     """Write cert/key files if missing. Returns True when files exist."""
     if os.path.exists(cert_path) and os.path.exists(key_path):
         return True
