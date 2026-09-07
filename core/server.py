@@ -27,6 +27,16 @@ def create_redirect_handler(suffix: str) -> type:
         def log_message(self, *args):
             pass
 
+        def end_headers(self):
+            self.send_header("Access-Control-Allow-Origin", "*")
+            super().end_headers()
+
+        def _options(self):
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+
         def _go(self):
             host = (self.headers.get("Host") or "localhost").split(":")[0]
             self.send_response(301)
@@ -36,6 +46,7 @@ def create_redirect_handler(suffix: str) -> type:
         do_GET = _go
         do_HEAD = _go
         do_POST = _go
+        do_OPTIONS = _options
 
     return RedirectHandler
 
