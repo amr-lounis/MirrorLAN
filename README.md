@@ -12,6 +12,40 @@ It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over TLS, redirects
 - Self-signed certs (stdlib only, SANs for LAN IPs)
 - Single-file Windows build via PyInstaller (`build.bat`)
 
+## Screenshots
+
+### 1. Start the server
+
+Open the app, pick a port, and press **Start Server**. Copy one of the LAN addresses for the other devices.
+
+![Server stopped](readme/01.JPG)
+![Server running with LAN addresses](readme/02.JPG)
+
+### 2. Create a room
+
+Open the address in a browser, type a room name, and press **Share**.
+
+![New room](readme/03.JPG)
+
+### 3. Choose what to share
+
+The browser asks what to share — a single window or the entire screen.
+
+![Share a window](readme/05-window.JPG)
+![Share the entire screen](readme/06-monitore.JPG)
+
+### 4. Sharing live
+
+The sharer view shows the stream with the viewer count on top.
+
+![Sharing](readme/04.JPG)
+
+### 5. Watch from another device
+
+The room appears as live — press **Watch** to view the shared screen.
+
+![Live room](readme/07.JPG)
+
 ## Requirements
 
 - Python 3.10+ (standard library only, no third-party deps to run)
