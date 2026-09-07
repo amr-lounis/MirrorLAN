@@ -191,6 +191,16 @@ LAN-trust model — anyone on your local network with the URL can create and wat
 - **Room stays listed after closing** — it drops automatically after ~15 s of missed heartbeats.
 - **Moved to another network / IP changed** — delete `cert.pem` + `key.pem` and press **Make Cert** (or restart) so the new IPs land in the certificate.
 
+### Phone shows a black screen (PC works)
+
+1. **Same Wi-Fi** — the phone must be on the same Wi-Fi network as the PC, not mobile data.
+2. **Accept the certificate on the phone** — open `https://<LAN-IP>/` in the phone browser first and proceed past the warning; otherwise nothing loads.
+3. **Use Chrome (Android) or Safari (iPhone)**, updated — in-app browsers and old versions may lack WebRTC.
+4. **Check the sharer page viewer count** after pressing Watch on the phone:
+   - Count goes up but still black → the video path is blocked: disable **AP/client isolation** (or "guest mode") on the router, or try another phone/hotspot.
+   - Count stays 0 → the phone never reached the server: recheck steps 1–2 and the IP address.
+5. **No sound on the phone** — phones often force muted autoplay; tap the video once to restore sound.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

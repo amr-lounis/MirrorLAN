@@ -46,7 +46,7 @@ async function watch(){
     pc = new RTCPeerConnection({ iceServers: [] }); // LAN only
     pc.addTransceiver('video', { direction: 'recvonly' });
     pc.addTransceiver('audio', { direction: 'recvonly' });
-    pc.ontrack = e => { if(e.streams[0]){ remoteV.srcObject = e.streams[0]; remoteV.play().catch(()=>{}); } };
+    pc.ontrack = e => { if(e.streams[0]){ remoteV.srcObject = e.streams[0]; unmuteAndPlay(); } };
     pc.onconnectionstatechange = () => {
       if(!pc) return;
       log('connection: ' + pc.connectionState);
@@ -80,6 +80,17 @@ async function watch(){
     log('error: ' + e.message);
   }
 }
+
+function unmuteAndPlay(){
+  // Phones block autoplay with sound: try with sound first (works right
+  // after tapping Watch), fall back to muted so the picture always shows.
+  remoteV.muted = false;
+  remoteV.play().catch(() => { remoteV.muted = true; remoteV.play().catch(()=>{}); });
+}
+remoteV.onclick = () => {
+  // Tap the video to restore sound after a muted fallback.
+  if(remoteV.muted && remoteV.srcObject){ remoteV.muted = false; remoteV.play().catch(()=>{ remoteV.muted = true; }); }
+};
 
 function leave(msg = true){
   if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
