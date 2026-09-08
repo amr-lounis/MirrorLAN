@@ -23,6 +23,8 @@ It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over TLS, redirects
 
 Rooms are in-memory only: a room disappears ~15 s after the sharer closes the page (missed heartbeats), and everything is cleared on server restart. Room names allow `a-z 0-9 - _` only, max 32 chars.
 
+**Max viewers** (default 1, up to 99) is chosen when creating the room. The sharer serves at most that many viewers — the badge shows `viewers/max` — and extra viewers wait: after ~12 s without a slot the viewer page shows "Waiting for a free slot", then connects automatically when someone leaves.
+
 ## Screenshots
 
 ### 1. Start the server
@@ -34,7 +36,7 @@ Open the app, pick a port, and press **Start Server**. Copy one of the LAN addre
 
 ### 2. Create a room
 
-Open the address in a browser, type a room name, and press **Share**.
+Open the address in a browser, type a room name, set **Max viewers** (1–99, default 1), and press **Share**.
 
 ![New room](readme/03.JPG)
 

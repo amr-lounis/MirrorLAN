@@ -21,6 +21,7 @@ button{background:#4f7cff;color:#fff;border:0;border-radius:10px;padding:9px 16p
 button:active{transform:scale(.96)}
 button.green{background:#22c55e;color:#04120a}
 .newrow{display:flex;gap:8px}
+.num{flex:0 0 88px;width:88px;text-align:center;background:#0f1115}
 input{flex:1;background:#171a21;color:#eef1f6;border:1px solid #2a2f3a;border-radius:10px;padding:10px 12px;font-size:14px;font-family:Consolas,monospace;min-width:0}
 input:focus{outline:none;border-color:#4f7cff}
 .empty{color:#8b93a7;font-size:13px;padding:12px 2px}
@@ -38,6 +39,10 @@ input:focus{outline:none;border-color:#4f7cff}
 <div class="newrow">
 <input id="name" placeholder="room-name" maxlength="32" autocapitalize="off" autocomplete="off" spellcheck="false">
 <button class="green" id="create">Share</button>
+</div>
+<div class="row">
+<label class="name" for="maxv">Max viewers</label>
+<input id="maxv" class="num" type="number" min="1" max="99" value="1" inputmode="numeric">
 </div>
 </div>
 <script>
@@ -77,7 +82,10 @@ async function refresh(){
 $('create').onclick = () => {
   const v = clean($('name').value);
   if(!ROOM_OK.test(v)){ $('name').focus(); return; }
-  location.href = 'Sharer.html?room=' + encodeURIComponent(v);
+  let n = parseInt($('maxv').value, 10);
+  if(!Number.isFinite(n)) n = 1;
+  n = Math.min(99, Math.max(1, n));
+  location.href = 'Sharer.html?room=' + encodeURIComponent(v) + '&max=' + n;
 };
 $('name').addEventListener('keydown', e => { if(e.key === 'Enter') $('create').click(); });
 refresh();
