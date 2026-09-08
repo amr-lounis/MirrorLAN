@@ -42,6 +42,11 @@ function hideToast(){ $('toast').style.display = 'none'; waitShown = false; }
 function cancelRetry(){
   if(retryTimer){ clearTimeout(retryTimer); retryTimer = null; }
 }
+function paintViewerBtns(){
+  // Play shows only when fully stopped; X shows while watching, waiting, or retrying.
+  $('watch').style.display = autoRetry ? 'none' : '';
+  $('leave').style.display = autoRetry ? '' : 'none';
+}
 function scheduleRetry(){
   if(!autoRetry || retryTimer) return; // manual Leave stops everything; one pending retry max
   const wait = Math.min(15000, 2000 * Math.pow(2, Math.min(retryCount, 3))); // 2s,4s,8s,15s…
@@ -60,6 +65,7 @@ async function watch(keepVid){
   cancelRetry();
   cleanupConn();
   autoRetry = true;
+  paintViewerBtns();
   if(!keepVid || !vid){ vid = makeId(); retryCount = 0; }
   log('connecting as ' + vid + ' ...');
   try{
@@ -134,10 +140,12 @@ function leave(msg = true){
   autoRetry = false; // manual stop (X button / page close): no more retries
   cancelRetry();
   cleanupConn();
+  paintViewerBtns();
   if(msg) log('left');
 }
 $('watch').onclick = () => watch(false);
 $('leave').onclick = () => leave(true);
+paintViewerBtns();
 const ICON_EXPAND = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
 const ICON_MIN = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
 function fsOn(){ return $('stage').classList.contains('fs') || !!document.fullscreenElement; }

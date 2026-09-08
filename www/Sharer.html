@@ -36,10 +36,17 @@ button svg{display:block}
 <script>
 const $ = id => document.getElementById(id);
 const preview = $('preview');
-let screenStream = null, pcs = {}, pollTimer = null;
+let screenStream = null, pcs = {}, pollTimer = null, starting = false;
 
 function log(t){ console.log(t); }
 function api(p){ return fetch(p).then(r => { if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
+
+function paintSharerBtns(){
+  // Play shows only when idle; X shows while sharing or picking a source.
+  const active = !!screenStream || starting;
+  $('share').style.display = active ? 'none' : '';
+  $('stop').style.display = active ? '' : 'none';
+}
 
 function updateViewers(){
   const n = Object.keys(pcs).length;
@@ -113,15 +120,18 @@ async function serveViewer(id, offerSdp){
 }
 
 $('share').onclick = async () => {
+  starting = true; paintSharerBtns();
   try{
     screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: true });
   }catch(e){
     try{ screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true }); }
-    catch(e2){ alert('Screen capture failed: ' + e2.name); log('capture failed: ' + e2.message); return; }
+    catch(e2){ starting = false; paintSharerBtns(); alert('Screen capture failed: ' + e2.name); log('capture failed: ' + e2.message); return; }
   }
+  starting = false;
   preview.srcObject = screenStream;
   $('share').disabled = true;
   $('stop').disabled = false;
+  paintSharerBtns();
   log('sharing live');
   screenStream.getVideoTracks()[0].addEventListener('ended', stopAll);
   pollTimer = setInterval(pollOffers, 1500);
@@ -145,6 +155,8 @@ function stopAll(){
   preview.srcObject = null;
   $('share').disabled = false;
   $('stop').disabled = true;
+  starting = false;
+  paintSharerBtns();
   updateViewers();
   log('stopped');
 }
@@ -155,6 +167,7 @@ const ICON_MIN = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="curren
 function fsOn(){ return $('stage').classList.contains('fs') || !!document.fullscreenElement; }
 function paintFsBtn(){ $('full').innerHTML = fsOn() ? ICON_MIN : ICON_EXPAND; }
 paintFsBtn();
+paintSharerBtns();
 $('full').onclick = async () => {
   const stage = $('stage');
   const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
