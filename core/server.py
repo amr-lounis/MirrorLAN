@@ -23,6 +23,10 @@ class ServerError(Exception):
 _CORS_METHODS = "GET, POST, OPTIONS"
 _CORS_HEADERS = "Content-Type"
 
+# Bigger than any valid signaling payload (SDP cap is 200 KB).
+# Bodies beyond this are rejected before reading (see _body).
+_MAX_BODY_BYTES = 256 * 1024
+
 
 class _CorsMixin:
     """Identical CORS answers on both listeners (API + http redirect)."""
@@ -66,6 +70,12 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
     /api/leave, /api/rooms, /api/sharer/heartbeat, /api/sharer/leave."""
 
     class ApiHandler(_CorsMixin, SimpleHTTPRequestHandler):
+        # HTTP/1.1 keep-alive: browsers reuse one TLS connection for the
+        # 1.2s polls instead of a full handshake per request (battery/CPU).
+        # Every response path below carries an explicit length so a reused
+        # connection never stalls waiting for a body that never comes.
+        protocol_version = "HTTP/1.1"
+
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=www_dir, **kwargs)
 
@@ -75,18 +85,36 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
         def do_OPTIONS(self):
             self._serve_preflight()
 
-        def _json(self, obj: object, code: int = 200) -> None:
+        def list_directory(self, path):
+            # Never expose directory listings (e.g. when serving --dir).
+            self.send_error(404, "Not found")
+            return None
+
+        def _json(self, obj: object, code: int = 200, close: bool = False) -> None:
             body = json.dumps(obj).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            if close:
+                # Unread request bytes remain in the buffer: the connection
+                # cannot be reused, tell the client to open a fresh one.
+                self.send_header("Connection", "close")
+                self.close_connection = True
             self.end_headers()
             self.wfile.write(body)
 
-        def _body(self) -> dict:
+        def _body(self) -> dict | None:
+            # None = unreadable/oversized body (caller answers 413).
+            # A lying Content-Length must not force us to buffer gigabytes.
             try:
                 size = int(self.headers.get("Content-Length") or 0)
-                return json.loads(self.rfile.read(size).decode() or "{}")
+            except ValueError:
+                return None
+            if size < 0 or size > _MAX_BODY_BYTES:
+                return None
+            try:
+                raw = self.rfile.read(size) if size else b""
+                return json.loads(raw.decode() or "{}")
             except Exception:
                 return {}
 
@@ -118,6 +146,8 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
             if path.path in ("/api/offer", "/api/answer", "/api/leave", "/api/claim",
                              "/api/sharer/heartbeat", "/api/sharer/leave"):
                 data = self._body()
+                if data is None:
+                    return self._json({"error": "body too large"}, 413, close=True)
                 try:
                     if path.path == "/api/offer":
                         store.put_offer(data.get("id"), data.get("sdp"), data.get("room", ""))
@@ -138,6 +168,7 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
                     return self._json({"error": str(exc)}, 400)
                 return self._json({"ok": True})
             self.send_response(404)
+            self.send_header("Content-Length", "0")
             self.end_headers()
 
     return ApiHandler
@@ -181,7 +212,13 @@ class ServerManager:
                                   % self.config.https_port)
             except OSError as exc:
                 raise ServerError("cannot bind port %d (%s)" % (self.config.https_port, exc))
-            server.socket = context.wrap_socket(server.socket, server_side=True)
+            server.daemon_threads = True  # stuck clients never block shutdown
+            server.request_queue_size = 128  # burst joins (up to 99 viewers/room)
+            try:
+                server.socket = context.wrap_socket(server.socket, server_side=True)
+            except Exception as exc:
+                server.server_close()  # else the bound port leaks for the next start
+                raise ServerError("TLS wrap failed (%s)" % exc)
             self._https = server
             redirector = create_redirect_handler(self.config.https_suffix)
             self.redirect_ok = self._launch_redirect(redirector)
@@ -194,6 +231,8 @@ class ServerManager:
             redirect = ThreadingHTTPServer(("0.0.0.0", self.config.http_port), handler)
         except OSError:
             return False
+        redirect.daemon_threads = True
+        redirect.request_queue_size = 128
         threading.Thread(target=redirect.serve_forever, daemon=True).start()
         self._redirect = redirect
         return True

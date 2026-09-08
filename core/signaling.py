@@ -96,7 +96,7 @@ class SignalingStore:
         """Mark a room as live. Returns the room name."""
         name = self._room(room)
         with self._lock:
-            self._sharers[name] = time.time()
+            self._sharers[name] = time.monotonic()
         return name
 
     def leave_sharer(self, room: object = "") -> None:
@@ -109,7 +109,7 @@ class SignalingStore:
 
     def list_rooms(self) -> List[dict]:
         """Rooms with a live sharer or pending offers (stale sharers pruned)."""
-        now = time.time()
+        now = time.monotonic()  # monotonic: NTP jumps must not kill live rooms
         with self._lock:
             stale = [room for room, seen in self._sharers.items()
                      if now - seen > self._sharer_timeout]

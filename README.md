@@ -183,7 +183,7 @@ LAN-trust model — anyone on your local network with the URL can create and wat
 
 - Traffic is TLS-encrypted, but the certificate is **self-signed** (browsers show a warning until accepted/trusted).
 - There is **no password or access code** — for a trusted home/office LAN only, do not expose to the internet.
-- Abuse limits: room names `a-z 0-9 - _` (max 32), viewer IDs (max 64), SDP blobs (max 200 KB) — oversized/invalid signaling is rejected with `400`.
+- Abuse limits: room names `a-z 0-9 - _` (max 32), viewer IDs (max 64), SDP blobs (max 200 KB) — oversized/invalid signaling is rejected (`400`, bodies over 256 KB get `413` with the connection closed).
 - The HTTPS API sends `Access-Control-Allow-Origin: *` (handy for local dev, open by design).
 
 ## Troubleshooting

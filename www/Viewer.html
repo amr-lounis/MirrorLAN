@@ -36,7 +36,13 @@ function scheduleRetry(){
   retryCount++;
   showToast('Connection lost — retrying…');
   log('connection lost - retrying in ' + wait + 'ms');
-  retryTimer = setTimeout(() => { retryTimer = null; if(autoRetry) watch(true); }, wait);
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if(!autoRetry) return;
+    const st = pc && pc.connectionState;
+    if(st === 'connected'){ retryCount = 0; hideToast(); return; } // blip is over: keep the live link
+    watch(true);
+  }, wait);
 }
 
 function makeId(){ return 'v-' + Math.random().toString(36).slice(2,8); }
