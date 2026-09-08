@@ -142,12 +142,14 @@ Output: `dist\MirrorLAN.exe` (one file, GUI, no console). Double-click it — th
 ```text
 main.py            entry point (GUI or --serve)
 core/config.py     all settings in one Config dataclass
-core/certs.py      self-signed ECDSA certificates (stdlib only)
+core/certs.py      self-signed ECDSA certificates + ensure_default_cert (stdlib only)
 core/net.py        local IPs and public URLs
 core/signaling.py  thread-safe viewer offer/answer store
-core/server.py     https server + http redirect + ServerManager
+core/server.py     https server + http redirect + ServerManager (shared CORS mixin)
 core/gui.py        Tkinter control panel
-www/               served pages (Sharer.html, Viewer.html, ...)
+www/shared.css     stage theme shared by Sharer/Viewer
+www/shared.js      stage helpers (toast, fullscreen, room parsing, autoplay…)
+www/               pages (index.html, Sharer.html, Viewer.html)
 ```
 
 ## Configuration

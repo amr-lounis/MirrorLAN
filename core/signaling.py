@@ -127,3 +127,4 @@ class SignalingStore:
         with self._lock:
             self._offers.clear()
             self._answers.clear()
+            self._sharers.clear()

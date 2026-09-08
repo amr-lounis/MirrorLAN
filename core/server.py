@@ -20,22 +20,30 @@ class ServerError(Exception):
     """Raised when the server cannot start (bad cert, busy port, ...)."""
 
 
+_CORS_METHODS = "GET, POST, OPTIONS"
+_CORS_HEADERS = "Content-Type"
+
+
+class _CorsMixin:
+    """Identical CORS answers on both listeners (API + http redirect)."""
+
+    def end_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        super().end_headers()
+
+    def _serve_preflight(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Methods", _CORS_METHODS)
+        self.send_header("Access-Control-Allow-Headers", _CORS_HEADERS)
+        self.end_headers()
+
+
 def create_redirect_handler(suffix: str) -> type:
     """301 redirector: every http:// request becomes the https:// twin."""
 
-    class RedirectHandler(BaseHTTPRequestHandler):
+    class RedirectHandler(_CorsMixin, BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
-
-        def end_headers(self):
-            self.send_header("Access-Control-Allow-Origin", "*")
-            super().end_headers()
-
-        def _options(self):
-            self.send_response(204)
-            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
-            self.end_headers()
 
         def _go(self):
             host = (self.headers.get("Host") or "localhost").split(":")[0]
@@ -46,7 +54,9 @@ def create_redirect_handler(suffix: str) -> type:
         do_GET = _go
         do_HEAD = _go
         do_POST = _go
-        do_OPTIONS = _options
+
+        def do_OPTIONS(self):
+            self._serve_preflight()
 
     return RedirectHandler
 
@@ -55,22 +65,15 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
     """Static files plus /api/offers, /api/claim, /api/answer, /api/offer,
     /api/leave, /api/rooms, /api/sharer/heartbeat, /api/sharer/leave."""
 
-    class ApiHandler(SimpleHTTPRequestHandler):
+    class ApiHandler(_CorsMixin, SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=www_dir, **kwargs)
 
         def log_message(self, *args):
             pass
 
-        def end_headers(self):
-            self.send_header("Access-Control-Allow-Origin", "*")
-            super().end_headers()
-
         def do_OPTIONS(self):
-            self.send_response(204)
-            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
-            self.end_headers()
+            self._serve_preflight()
 
         def _json(self, obj: object, code: int = 200) -> None:
             body = json.dumps(obj).encode()

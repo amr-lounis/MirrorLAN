@@ -5,9 +5,8 @@ from __future__ import annotations
 import os
 import tkinter as tk
 
-from .certs import ensure_cert_files
-from .config import Config
-from .net import local_ips
+from .certs import ensure_default_cert
+from .config import APP_DIR, Config
 from .server import ServerError, ServerManager
 
 BG = "#0f1115"
@@ -37,7 +36,6 @@ class ServerGui:
         self._rows: list = []
         root.title("MirrorLAN")
         try:
-            from .config import APP_DIR
             root.iconbitmap(os.path.join(APP_DIR, "app.ico"))
         except Exception:
             pass
@@ -197,10 +195,7 @@ class ServerGui:
 
     def make_cert(self) -> None:
         try:
-            ips = ["127.0.0.1"] + [ip for ip in local_ips() if ip != "127.0.0.1"]
-            ensure_cert_files(self.config.cert_file, self.config.key_file,
-                              list(self.config.dns_names), ips,
-                              self.config.cert_days, self.config.common_name)
+            ensure_default_cert(self.config)
             self.say("Certificate ready.", GREEN)
         except Exception as exc:
             self.say("Cert failed: %s" % exc, RED)

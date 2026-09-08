@@ -4,24 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>MirrorLAN — Sharer</title>
-<style>
-*{box-sizing:border-box}
-html,body{height:100%}
-body{margin:0;background:#000;font-family:system-ui;overflow:hidden}
-.stage{position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center}
-.stage video{width:100%;height:100%;object-fit:contain;background:#000}
-.stage.fs video{object-fit:contain}
-.count{position:absolute;top:calc(10px + env(safe-area-inset-top));right:14px;min-width:30px;height:30px;padding:0 8px;border-radius:999px;background:rgba(0,0,0,.45);color:#fff;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:5}
-.bar{position:absolute;bottom:calc(12px + env(safe-area-inset-bottom));left:0;right:0;display:flex;justify-content:center;gap:8px;opacity:.35;transition:opacity .25s,transform .35s;transform:translateY(0)}
-.stage:hover .bar,.bar:focus-within{opacity:1}
-.bar.hidden{opacity:0;transform:translateY(150%);pointer-events:none}
-button{background:rgba(34,197,94,.9);color:#000;border:0;width:52px;height:52px;border-radius:50%;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
-button.danger{background:rgba(239,68,68,.9);color:#fff}
-button.blue{background:rgba(79,124,255,.9);color:#fff}
-button:disabled{opacity:.3}
-button:active{transform:scale(.94)}
-button svg{display:block}
-</style>
+<link rel="stylesheet" href="shared.css">
+<style>:root{--btn:rgba(34,197,94,.9);--btn-fg:#000}</style>
 </head>
 <body>
 <div class="stage" id="stage">
@@ -33,13 +17,16 @@ button svg{display:block}
 <button id="full" class="blue" title="Fullscreen" aria-label="Fullscreen"></button>
 </div>
 </div>
+<script src="shared.js"></script>
 <script>
-const $ = id => document.getElementById(id);
 const preview = $('preview');
 let screenStream = null, pcs = {}, pollTimer = null, starting = false;
 
-function log(t){ console.log(t); }
-function api(p){ return fetch(p).then(r => { if(!r.ok) throw new Error('http '+r.status); return r.json(); }); }
+function updateViewers(){
+  const n = Object.keys(pcs).length;
+  $('count').textContent = n + '/' + MAXV;
+  log('viewers: ' + n + '/' + MAXV);
+}
 
 function paintSharerBtns(){
   // Play shows only when idle; X shows while sharing or picking a source.
@@ -48,13 +35,6 @@ function paintSharerBtns(){
   $('stop').style.display = active ? '' : 'none';
 }
 
-function updateViewers(){
-  const n = Object.keys(pcs).length;
-  $('count').textContent = n + '/' + MAXV;
-  log('viewers: ' + n + '/' + MAXV);
-}
-
-const ROOM = ((new URLSearchParams(location.search).get('room') || '').toLowerCase().match(/^[a-z0-9\-_]{0,32}$/) || [''])[0];
 const MAXV = (() => {
   const n = parseInt(new URLSearchParams(location.search).get('max'), 10);
   return Number.isFinite(n) ? Math.min(99, Math.max(1, n)) : 1;
@@ -162,35 +142,9 @@ function stopAll(){
 }
 $('stop').onclick = stopAll;
 
-const ICON_EXPAND = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
-const ICON_MIN = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
-function fsOn(){ return $('stage').classList.contains('fs') || !!document.fullscreenElement; }
-function paintFsBtn(){ $('full').innerHTML = fsOn() ? ICON_MIN : ICON_EXPAND; }
-paintFsBtn();
+setupFullscreen('stage', 'full');
+keepBarAwake('bar');
 paintSharerBtns();
-$('full').onclick = async () => {
-  const stage = $('stage');
-  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  try{
-    if(fsOn()){ stage.classList.remove('fs'); if(document.fullscreenElement) await document.exitFullscreen(); }
-    else if(stage.requestFullscreen && !ios) await stage.requestFullscreen();
-    else stage.classList.add('fs');
-  }catch(e){ stage.classList.add('fs'); }
-  paintFsBtn();
-};
-document.addEventListener('fullscreenchange', () => {
-  if(!document.fullscreenElement) $('stage').classList.remove('fs');
-  paintFsBtn();
-});
-
-let idleT = null;
-function poke(){
-  $('bar').classList.remove('hidden');
-  if(idleT) clearTimeout(idleT);
-  idleT = setTimeout(() => $('bar').classList.add('hidden'), 5000);
-}
-['touchstart','mousemove','mousedown','keydown','wheel','click'].forEach(ev => document.addEventListener(ev, poke, {passive:true}));
-poke();
 window.addEventListener('beforeunload', () => { try{stopAll();}catch(e){} });
 </script>
 </body>

@@ -10,7 +10,10 @@ import hashlib
 import os
 import socket
 import time
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
+
+if TYPE_CHECKING:  # config never imports certs, so this cannot cycle
+    from .config import Config
 
 # secp256r1 (prime256v1) domain parameters.
 _EC_P = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
@@ -217,3 +220,17 @@ def ensure_cert_files(cert_path: str, key_path: str, dns_names: List[str],
     except Exception:
         pass
     return True
+
+
+def ensure_default_cert(config: "Config") -> bool:
+    """Create cert/key for this machine's LAN IPs if missing.
+
+    Single place for the logic previously duplicated in main.py and gui.py.
+    Returns True when the files exist (created now or already there).
+    """
+    from .net import local_ips
+
+    ips = ["127.0.0.1"] + [ip for ip in local_ips() if ip != "127.0.0.1"]
+    return ensure_cert_files(config.cert_file, config.key_file,
+                             list(config.dns_names), ips,
+                             config.cert_days, config.common_name)

@@ -60,15 +60,11 @@ def parse_args(argv: list) -> tuple:
 
 def run_headless(config: Config) -> int:
     """Start the server and block until Ctrl+C. Returns exit code."""
-    from core.certs import ensure_cert_files
-    from core.net import local_ips
+    from core.certs import ensure_default_cert
 
     manager = ServerManager(config)
     if not (os.path.exists(config.cert_file) and os.path.exists(config.key_file)):
-        ips = ["127.0.0.1"] + [ip for ip in local_ips() if ip != "127.0.0.1"]
-        ensure_cert_files(config.cert_file, config.key_file,
-                          list(config.dns_names), ips,
-                          config.cert_days, config.common_name)
+        ensure_default_cert(config)
         _say("created cert.pem / key.pem")
     try:
         urls = manager.start()

@@ -4,21 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>MirrorLAN — Viewer</title>
-<style>
-*{box-sizing:border-box}
-html,body{height:100%}
-body{margin:0;background:#000;font-family:system-ui;overflow:hidden}
-.stage{position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center}
-.stage video{width:100%;height:100%;object-fit:contain;background:#000}
-.stage.fs video{object-fit:contain}
-.toast{position:absolute;top:calc(10px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);background:rgba(0,0,0,.65);color:#fff;font-size:13px;padding:8px 14px;border-radius:999px;display:none;z-index:5;white-space:nowrap}
-.bar{position:absolute;bottom:calc(12px + env(safe-area-inset-bottom));left:0;right:0;display:flex;justify-content:center;gap:8px;opacity:.35;transition:opacity .25s,transform .35s;transform:translateY(0)}
-.stage:hover .bar,.bar:focus-within{opacity:1}
-.bar.hidden{opacity:0;transform:translateY(150%);pointer-events:none}
-button{background:rgba(79,124,255,.9);color:#fff;border:0;width:52px;height:52px;border-radius:50%;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
-button:active{transform:scale(.94)}
-button svg{display:block}
-</style>
+<link rel="stylesheet" href="shared.css">
 </head>
 <body>
 <div class="stage" id="stage">
@@ -30,14 +16,11 @@ button svg{display:block}
 <button id="full" title="Fullscreen" aria-label="Fullscreen"></button>
 </div>
 </div>
+<script src="shared.js"></script>
 <script>
-const $ = id => document.getElementById(id);
 const remoteV = $('remote');
 let pc = null, vid = null, pollTimer = null, offerAt = 0, waitShown = false;
 let retryTimer = null, retryCount = 0, autoRetry = false;
-
-function showToast(t){ const el = $('toast'); el.textContent = t; el.style.display = 'block'; }
-function hideToast(){ $('toast').style.display = 'none'; waitShown = false; }
 
 function cancelRetry(){
   if(retryTimer){ clearTimeout(retryTimer); retryTimer = null; }
@@ -56,9 +39,7 @@ function scheduleRetry(){
   retryTimer = setTimeout(() => { retryTimer = null; if(autoRetry) watch(true); }, wait);
 }
 
-function log(t){ console.log(t); }
 function makeId(){ return 'v-' + Math.random().toString(36).slice(2,8); }
-const ROOM = ((new URLSearchParams(location.search).get('room') || '').toLowerCase().match(/^[a-z0-9\-_]{0,32}$/) || [''])[0];
 log('room: ' + (ROOM || '(default)'));
 
 async function watch(keepVid){
@@ -73,7 +54,7 @@ async function watch(keepVid){
     const myPc = pc; // ignore late events from a previous connection
     pc.addTransceiver('video', { direction: 'recvonly' });
     pc.addTransceiver('audio', { direction: 'recvonly' });
-    pc.ontrack = e => { if(e.streams[0] && pc === myPc){ remoteV.srcObject = e.streams[0]; unmuteAndPlay(); } };
+    pc.ontrack = e => { if(e.streams[0] && pc === myPc){ remoteV.srcObject = e.streams[0]; playWithSound(remoteV); } };
     pc.onconnectionstatechange = () => {
       if(pc !== myPc) return;
       const s = myPc.connectionState;
@@ -94,6 +75,7 @@ async function watch(keepVid){
       body: JSON.stringify({ id: vid, sdp: pc.localDescription.sdp, room: ROOM }) });
     log('offer sent, waiting for server answer...');
     offerAt = Date.now();
+    waitShown = false;
     pollTimer = setInterval(async () => {
       if(!waitShown && Date.now() - offerAt > 12000){
         waitShown = true;
@@ -118,15 +100,9 @@ async function watch(keepVid){
   }
 }
 
-function unmuteAndPlay(){
-  // Phones block autoplay with sound: try with sound first (works right
-  // after tapping Watch), fall back to muted so the picture always shows.
-  remoteV.muted = false;
-  remoteV.play().catch(() => { remoteV.muted = true; remoteV.play().catch(()=>{}); });
-}
 remoteV.onclick = () => {
   // Tap the video to restore sound after a muted fallback.
-  if(remoteV.muted && remoteV.srcObject){ remoteV.muted = false; remoteV.play().catch(()=>{ remoteV.muted = true; }); }
+  if(remoteV.muted && remoteV.srcObject) playWithSound(remoteV);
 };
 
 function cleanupConn(){
@@ -145,35 +121,11 @@ function leave(msg = true){
 }
 $('watch').onclick = () => watch(false);
 $('leave').onclick = () => leave(true);
+
+setupFullscreen('stage', 'full');
+keepBarAwake('bar');
 paintViewerBtns();
-const ICON_EXPAND = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
-const ICON_MIN = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
-function fsOn(){ return $('stage').classList.contains('fs') || !!document.fullscreenElement; }
-function paintFsBtn(){ $('full').innerHTML = fsOn() ? ICON_MIN : ICON_EXPAND; }
-paintFsBtn();
-$('full').onclick = async () => {
-  const stage = $('stage');
-  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  try{
-    if(fsOn()){ stage.classList.remove('fs'); if(document.fullscreenElement) await document.exitFullscreen(); }
-    else if(stage.requestFullscreen && !ios) await stage.requestFullscreen();
-    else stage.classList.add('fs');
-  }catch(e){ stage.classList.add('fs'); }
-  paintFsBtn();
-};
-document.addEventListener('fullscreenchange', () => {
-  if(!document.fullscreenElement) $('stage').classList.remove('fs');
-  paintFsBtn();
-});
 window.addEventListener('beforeunload', () => leave(false));
-let idleT = null;
-function poke(){
-  $('bar').classList.remove('hidden');
-  if(idleT) clearTimeout(idleT);
-  idleT = setTimeout(() => $('bar').classList.add('hidden'), 5000);
-}
-['touchstart','mousemove','mousedown','keydown','wheel','click'].forEach(ev => document.addEventListener(ev, poke, {passive:true}));
-poke();
 </script>
 </body>
 </html>
