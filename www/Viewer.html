@@ -19,7 +19,7 @@
 <script src="shared.js"></script>
 <script>
 const remoteV = $('remote');
-let pc = null, vid = null, vgen = 0, pollTimer = null, offerAt = 0, waitShown = false;
+let pc = null, vid = null, pollTimer = null, offerAt = 0, waitShown = false;
 let retryTimer = null, retryCount = 0, autoRetry = false;
 let watchdogTimer = null;
 const WATCHDOG_MS = 30000; // waiting for the first answer with no recovery =
@@ -35,7 +35,7 @@ function armWatchdog(){
     if(!autoRetry) return; // left meanwhile (X button / page close)
     if(pc && pc.connectionState === 'connected') return; // recovered meanwhile
     log('no answer for 30s - restarting watch');
-    watch(true); // same id, next gen: fresh offer + fresh pc
+    watch(true); // same id: fresh offer + fresh pc
   }, WATCHDOG_MS);
 }
 
@@ -71,8 +71,7 @@ async function watch(keepVid){
   cleanupConn();
   autoRetry = true;
   paintViewerBtns();
-  if(!keepVid || !vid){ vid = makeId(); vgen = 0; retryCount = 0; }
-  else { vgen++; } // same viewer, new attempt: old leaves must not match us
+  if(!keepVid || !vid){ vid = makeId(); retryCount = 0; }
   log('connecting as ' + vid + ' ...');
   try{
     pc = new RTCPeerConnection({ iceServers: [] }); // LAN only
@@ -97,7 +96,7 @@ async function watch(keepVid){
       setTimeout(res, 3000);
     });
     await fetch('api/offer', { method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ id: vid, sdp: pc.localDescription.sdp, room: ROOM, gen: vgen }) });
+      body: JSON.stringify({ id: vid, sdp: pc.localDescription.sdp, room: ROOM }) });
     log('offer sent, waiting for server answer...');
     offerAt = Date.now();
     waitShown = false;
@@ -138,7 +137,7 @@ function cleanupConn(){
   if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
   cancelWatchdog();
   hideToast();
-  if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM, gen: vgen}), keepalive: true }).catch(()=>{}); }catch(e){} }
+  if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM}), keepalive: true }).catch(()=>{}); }catch(e){} }
   if(pc){ try{ pc.onconnectionstatechange = null; pc.ontrack = null; pc.close(); }catch(e){} pc = null; }
   remoteV.srcObject = null;
 }

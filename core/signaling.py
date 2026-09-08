@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 _ROOM_OK = re.compile(r"[a-z0-9\-_]*")
 
@@ -26,6 +26,16 @@ ANSWER_TTL = 90
 DEPARTED_TTL = 120
 
 
+def _known_ids(known: object) -> set:
+    """Sharer's known viewer ids as a set. Accepts an array of ids or a
+    legacy {id: gen} map (values ignored). Anything else means nobody."""
+    if isinstance(known, dict):
+        return {k for k in known if isinstance(k, str)}
+    if isinstance(known, (list, tuple)):
+        return {k for k in known if isinstance(k, str)}
+    return set()
+
+
 class SignalingStore:
     """Maps (room, viewer id) pairs to pending SDP offers and answers."""
 
@@ -36,11 +46,11 @@ class SignalingStore:
         self._max_room_len = max_room_len
         self._sharer_timeout = sharer_timeout
         self._lock = threading.Lock()
-        self._offers: Dict[Tuple[str, str], Tuple[Optional[int], str]] = {}
+        self._offers: Dict[Tuple[str, str], str] = {}
         self._answers: Dict[Tuple[str, str], str] = {}
         self._answer_ts: Dict[Tuple[str, str], float] = {}
         self._seen: Dict[Tuple[str, str], float] = {}  # (room, id) -> last live touch
-        self._departed: Dict[Tuple[str, str, int], float] = {}  # (room, id, gen) -> left at
+        self._departed: Dict[Tuple[str, str], float] = {}  # (room, id) -> left at
         self._sharers: Dict[str, float] = {}  # room -> last heartbeat epoch
 
     def _room(self, room: object) -> str:
@@ -83,24 +93,21 @@ class SignalingStore:
             if now - left > DEPARTED_TTL:
                 self._departed.pop(key, None)
 
-    def put_offer(self, viewer_id: object, sdp: object, room: object = "",
-                  gen: object = None) -> Tuple[str, str]:
+    def put_offer(self, viewer_id: object, sdp: object, room: object = "") -> Tuple[str, str]:
         """Store a viewer offer, dropping any stale answer. Returns (room, id).
 
         A fresh offer proves the viewer is alive again, so any recorded
-        departure for (room, id) — any generation — is forgotten.
+        departure for (room, id) is forgotten.
         """
         name = self._room(room)
         vid, blob = self._check(viewer_id, sdp)
-        gen = gen if isinstance(gen, int) and not isinstance(gen, bool) else None
         with self._lock:
             self._prune_locked()
-            self._offers[(name, vid)] = (gen, blob)
+            self._offers[(name, vid)] = blob
             self._answers.pop((name, vid), None)
             self._answer_ts.pop((name, vid), None)
             self._seen[(name, vid)] = time.monotonic()
-            for key in [k for k in self._departed if k[0] == name and k[1] == vid]:
-                del self._departed[key]
+            self._departed.pop((name, vid), None)
         return name, vid
 
     def put_answer(self, viewer_id: object, sdp: object, room: object = "") -> Tuple[str, str]:
@@ -120,12 +127,14 @@ class SignalingStore:
         with self._lock:
             self._prune_locked()
             return [{"id": vid, "sdp": blob}
-                    for (rm, vid), (_, blob) in self._offers.items() if rm == name]
+                    for (rm, vid), blob in self._offers.items() if rm == name]
 
-    def claim_offer(self, room: object = "") -> Tuple[str, str, Optional[int]] | None:
+    def claim_offer(self, room: object = "") -> Tuple[str, str] | None:
         """Atomically pop one pending offer of a room.
 
-        Returns (viewer id, sdp, generation) or None. First claimer wins.
+        Returns (viewer id, sdp) or None. First claimer wins.
+        Claiming forgives any recorded departure for that viewer:
+        a claimed offer proves it is alive right now.
         """
         name = self._room(room)
         with self._lock:
@@ -133,46 +142,42 @@ class SignalingStore:
             for key in self._offers:
                 if key[0] == name:
                     vid = key[1]
-                    gen, blob = self._offers.pop(key)
-                    return vid, blob, gen
+                    blob = self._offers.pop(key)
+                    self._departed.pop(key, None)
+                    return vid, blob
         return None
 
-    def claim_known(self, room: object = "", known: object = None) -> Tuple[str, str, Optional[int]] | None:
+    def claim_known(self, room: object = "", known: object = None) -> Tuple[str, str] | None:
         """Pop the first pending offer from an already-known viewer id.
 
         Used when the room is full: a re-offer replaces its stale link
         without touching the waiting queue. Unknown ids are never served.
+        Claiming forgives any recorded departure for that viewer.
         """
         name = self._room(room)
-        if not isinstance(known, dict) or not known:
+        wanted = _known_ids(known)
+        if not wanted:
             return None
         with self._lock:
             self._prune_locked()
             for key in self._offers:
-                if key[0] == name and key[1] in known:
+                if key[0] == name and key[1] in wanted:
                     vid = key[1]
-                    gen, blob = self._offers.pop(key)
-                    return vid, blob, gen
+                    blob = self._offers.pop(key)
+                    self._departed.pop(key, None)
+                    return vid, blob
         return None
 
     def check_departed(self, room: object = "", known: object = None) -> List[str]:
-        """Ids from the sharer's known {id: gen} map that left the room.
-
-        A generation mismatch means "stale leave vs. fresh connection"
-        and is ignored: only an exact (id, gen) match drops a slot.
-        """
+        """Ids from the sharer's known viewers that left the room."""
         name = self._room(room)
-        if not isinstance(known, dict) or not known:
-            return []
-        clean = {k: v for k, v in known.items()
-                 if isinstance(k, str) and isinstance(v, int)
-                 and not isinstance(v, bool)}
-        if not clean:
+        wanted = _known_ids(known)
+        if not wanted:
             return []
         with self._lock:
             self._prune_locked()
-            return [vid for (rm, vid, gen) in self._departed
-                    if rm == name and clean.get(vid) == gen]
+            return [vid for (rm, vid) in self._departed
+                    if rm == name and vid in wanted]
 
     def get_answer(self, viewer_id: object, room: object = "") -> str | None:
         vid = self._valid_id(viewer_id)
@@ -183,20 +188,18 @@ class SignalingStore:
                 self._seen[(name, vid)] = time.monotonic()  # still waiting = still alive
             return self._answers.get((name, vid))
 
-    def remove(self, viewer_id: object, room: object = "", gen: object = None) -> None:
+    def remove(self, viewer_id: object, room: object = "") -> None:
         vid = self._valid_id(viewer_id)
         name = self._room(room)
-        if not (isinstance(gen, int) and not isinstance(gen, bool)):
-            gen = None
         with self._lock:
             self._offers.pop((name, vid), None)
             self._answers.pop((name, vid), None)
             self._answer_ts.pop((name, vid), None)
             self._seen.pop((name, vid), None)
-            if gen is not None:
-                # Recorded for the sharer's next poll; forgotten on the
-                # viewer's next offer (put_offer) or after DEPARTED_TTL.
-                self._departed[(name, vid, gen)] = time.monotonic()
+            # Recorded for the sharer's next poll; forgotten on the
+            # viewer's next offer (put_offer), when claimed, or after
+            # DEPARTED_TTL.
+            self._departed[(name, vid)] = time.monotonic()
 
     def heartbeat_sharer(self, room: object = "") -> str:
         """Mark a room as live. Returns the room name."""

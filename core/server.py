@@ -164,8 +164,7 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
                     return self._json({"error": "body too large"}, 413, close=True)
                 try:
                     if path.path == "/api/offer":
-                        store.put_offer(data.get("id"), data.get("sdp"), data.get("room", ""),
-                                        data.get("gen"))
+                        store.put_offer(data.get("id"), data.get("sdp"), data.get("room", ""))
                     elif path.path == "/api/answer":
                         store.put_answer(data.get("id"), data.get("sdp"), data.get("room", ""))
                     elif path.path == "/api/sharer/heartbeat":
@@ -184,11 +183,10 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
                             claimed = store.claim_known(room, known)
                         if claimed is None:
                             return self._json({"error": "empty", "gone": gone}, 404)
-                        vid, sdp, gen = claimed
-                        return self._json({"id": vid, "sdp": sdp, "gen": gen,
-                                           "gone": gone})
+                        vid, sdp = claimed
+                        return self._json({"id": vid, "sdp": sdp, "gone": gone})
                     else:
-                        store.remove(data.get("id"), data.get("room", ""), data.get("gen"))
+                        store.remove(data.get("id"), data.get("room", ""))
                 except ValueError as exc:
                     return self._json({"error": str(exc)}, 400)
                 return self._json({"ok": True})

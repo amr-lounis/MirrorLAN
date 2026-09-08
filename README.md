@@ -23,7 +23,7 @@ It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over TLS, redirects
 
 Rooms are in-memory only: a room disappears ~15 s after the sharer closes the page (missed heartbeats), and everything is cleared on server restart. Room names allow `a-z 0-9 - _` only, max 32 chars. Signaling is lightweight polling (1 s ticks, keep-alive connections) — typical join takes ~1–2 s. Unclaimed offers and undelivered answers expire after 90 s so crashed viewers never clog the queue; live viewers refresh automatically.
 
-**Max viewers** (default 1, up to 99) is chosen when creating the room. The sharer serves at most that many viewers — the badge shows `viewers/max` — and extra viewers wait: after ~12 s without a slot the viewer page shows "Waiting for a free slot", then connects automatically when someone leaves. If no answer arrives within ~30 s the viewer restarts its attempt automatically (same id, next generation), so a lost handshake can never strand it on black. When a viewer closes the page the slot frees instantly; brief network blips get a 5 s grace before the slot is released. If an active viewer's connection drops (server or network), the viewer page retries automatically with backoff (2s…15s) until the stream returns — pressing ✕ (Leave) stops retrying.
+**Max viewers** (default 1, up to 99) is chosen when creating the room. The sharer serves at most that many viewers — the badge shows `viewers/max` — and extra viewers wait: after ~12 s without a slot the viewer page shows "Waiting for a free slot", then connects automatically when someone leaves. If no answer arrives within ~30 s the viewer restarts its attempt automatically (same id), so a lost handshake can never strand it on black. When a viewer closes the page the slot frees instantly; brief network blips get a 5 s grace before the slot is released. If an active viewer's connection drops (server or network), the viewer page retries automatically with backoff (2s…15s) until the stream returns — pressing ✕ (Leave) stops retrying.
 
 ## Screenshots
 
@@ -171,10 +171,10 @@ CLI flags: `--serve [PORT]`, `--dir PATH`, `--https-port PORT`, `--http-port POR
 - `GET /api/rooms` — list active rooms
 - `GET /api/offers?room=` — list viewer offers in a room
 - `GET /api/answer?id=&room=` — fetch an answer (404 `not-ready` if missing)
-- `POST /api/offer` `{id, sdp, room, gen}` — publish a viewer offer (`gen`: viewer generation, bumps on every retry)
+- `POST /api/offer` `{id, sdp, room}` — publish a viewer offer
 - `POST /api/answer` `{id, sdp, room}` — publish an answer
-- `POST /api/claim` `{room, known, accept}` — sharer claims the next offer (404 `empty`); both answers carry `gone: [...]` — served viewer ids (with matching generation) that pressed Leave, so the sharer drops them within ~1 s instead of waiting ~10 s for ICE timeout. `accept: false` serves only re-offers from known ids without touching the waiting queue (full rooms); a re-offer from a served viewer always replaces its stale link, so a returning viewer can never strand on black
-- `POST /api/leave` `{id, room, gen}` — remove an offer/answer and notify the sharer
+- `POST /api/claim` `{room, known, accept}` — sharer claims the next offer (404 `empty`); both answers carry `gone: [...]` — served viewer ids that pressed Leave (matched against the sharer's `known` id list), so the sharer drops them within ~1 s instead of waiting ~10 s for ICE timeout. `accept: false` serves only re-offers from known ids without touching the waiting queue (full rooms); a re-offer from a served viewer always replaces its stale link, so a returning viewer can never strand on black
+- `POST /api/leave` `{id, room}` — remove an offer/answer and notify the sharer
 - `POST /api/sharer/heartbeat` `{room}` / `POST /api/sharer/leave` `{room}`
 
 ## Security

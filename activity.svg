@@ -116,7 +116,7 @@
 <line x1="1030" y1="738" x2="1030" y2="780" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
 <rect x="900" y="780" width="260" height="40" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
 <text x="1030" y="797" text-anchor="middle" font-size="12.5" fill="#eef1f6">Watch → POST offer</text>
-<text x="1030" y="811" text-anchor="middle" font-size="11" fill="#8b93a7">(id, gen)</text>
+<text x="1030" y="811" text-anchor="middle" font-size="11" fill="#8b93a7">(viewer id)</text>
 <line x1="1030" y1="820" x2="1030" y2="846" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
 <rect x="900" y="846" width="260" height="36" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
 <text x="1030" y="869" text-anchor="middle" font-size="12.5" fill="#eef1f6">Poll answer (now + 1s)</text>
@@ -137,7 +137,7 @@
 <text x="910" y="1076" font-size="10" fill="#ffd479">yes</text>
 <rect x="860" y="1138" width="150" height="44" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
 <text x="935" y="1156" text-anchor="middle" font-size="11.5" fill="#eef1f6">retry w/ backoff</text>
-<text x="935" y="1170" text-anchor="middle" font-size="10.5" fill="#8b93a7">(same id, gen+1)</text>
+<text x="935" y="1170" text-anchor="middle" font-size="10.5" fill="#8b93a7">(same id)</text>
 <polyline points="915,1182 915,1330 1195,1330 1195,800 1160,800" fill="none" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
 <text x="1042" y="1165" font-size="10" fill="#ffd479">no</text>
 <line x1="1030" y1="1112" x2="1030" y2="1210" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
