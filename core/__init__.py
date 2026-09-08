@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Public surface of the core package."""
 from .config import BASE_DIR, Config
-from .certs import ensure_cert_files, ensure_default_cert, generate_self_signed
+from .certs import (ensure_cert_files, ensure_default_cert,
+                    generate_self_signed, inspect_cert, load_key_scalar,
+                    needs_renewal)
 from .net import local_ips, server_urls
 from .server import ServerError, ServerManager, build_manager
 from .signaling import SignalingStore
@@ -16,6 +18,9 @@ __all__ = [
     "build_manager",
     "ensure_cert_files",
     "ensure_default_cert",
+    "inspect_cert",
+    "load_key_scalar",
+    "needs_renewal",
     "generate_self_signed",
     "local_ips",
     "server_urls",

@@ -195,10 +195,16 @@ class ServerGui:
 
     def make_cert(self) -> None:
         try:
-            ensure_default_cert(self.config)
-            self.say("Certificate ready.", GREEN)
+            status = ensure_default_cert(self.config)
         except Exception as exc:
             self.say("Cert failed: %s" % exc, RED)
+            return
+        if status == "ok":
+            self.say("Certificate ready.", GREEN)
+        elif status == "created":
+            self.say("Certificate created.", GREEN)
+        else:
+            self.say("Certificate renewed (%s)." % status.split(":", 1)[1], GREEN)
 
     def close(self) -> None:
         try:

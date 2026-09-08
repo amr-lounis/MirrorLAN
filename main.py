@@ -63,9 +63,11 @@ def run_headless(config: Config) -> int:
     from core.certs import ensure_default_cert
 
     manager = ServerManager(config)
-    if not (os.path.exists(config.cert_file) and os.path.exists(config.key_file)):
-        ensure_default_cert(config)
+    status = ensure_default_cert(config)
+    if status == "created":
         _say("created cert.pem / key.pem")
+    elif status.startswith("renewed:"):
+        _say("renewed cert.pem (%s)" % status.split(":", 1)[1])
     try:
         urls = manager.start()
     except ServerError as exc:

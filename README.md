@@ -127,7 +127,7 @@ Then on any device on the same network, open `https://<LAN-IP>/` (or `https://<L
 GUI buttons:
 
 - **Copy** / **Copy All** — copy one or all LAN addresses to the clipboard
-- **Make Cert** — generate `cert.pem` / `key.pem` if missing (valid ~10 years, includes current LAN IPs; delete both files and press again to regenerate, e.g. after your IP changes)
+- **Make Cert** — ensure a valid `cert.pem` / `key.pem`: creates them if missing, otherwise renews automatically when expired, expiring (< 30 days), or when your LAN IPs changed. Renewal keeps the same private key; foreign certificates (different name) are never touched
 
 ## Build the .exe (Windows)
 
@@ -193,7 +193,7 @@ LAN-trust model — anyone on your local network with the URL can create and wat
 - **Browser says "not secure"** — expected for a self-signed cert; accept/continue, or install `cert.pem` as a trusted certificate.
 - **"Cannot bind port"** — another app uses the port; pick a different one.
 - **Room stays listed after closing** — it drops automatically after ~15 s of missed heartbeats.
-- **Moved to another network / IP changed** — delete `cert.pem` + `key.pem` and press **Make Cert** (or restart) so the new IPs land in the certificate.
+- **Moved to another network / IP changed** — just restart the app or press **Make Cert**: the certificate renews itself automatically (same key kept), no manual steps.
 
 ### Phone shows a black screen (PC works)
 

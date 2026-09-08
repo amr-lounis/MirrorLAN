@@ -6,11 +6,14 @@ No network, no openssl, no pip packages. Used for offline HTTPS.
 from __future__ import annotations
 
 import base64
+import calendar
 import hashlib
 import os
 import socket
 import time
 from typing import TYPE_CHECKING, List, Optional, Tuple
+
+from .net import local_ips
 
 if TYPE_CHECKING:  # config never imports certs, so this cannot cycle
     from .config import Config
@@ -142,10 +145,16 @@ def _ecdsa_sign(priv: int, digest: bytes) -> Tuple[int, int]:
 
 def generate_self_signed(dns_names: List[str], ip_list: List[str],
                          days: int = 3650,
-                         common_name: str = "MirrorLAN") -> Tuple[str, str]:
-    """Build a self-signed server certificate. Returns (cert_pem, key_pem)."""
+                         common_name: str = "MirrorLAN",
+                         priv: Optional[int] = None) -> Tuple[str, str]:
+    """Build a self-signed server certificate. Returns (cert_pem, key_pem).
+
+    priv: reuse an existing private scalar (renewal keeps the key);
+    None generates a fresh key.
+    """
     oid_pub, oid_curve, oid_sig = _oids()
-    priv = (int.from_bytes(os.urandom(32), "big") % (_EC_N - 1)) + 1
+    if priv is None:
+        priv = (int.from_bytes(os.urandom(32), "big") % (_EC_N - 1)) + 1
     pub = _ec_mul(priv) or (0, 0)
     pub_raw = b"\x04" + pub[0].to_bytes(32, "big") + pub[1].to_bytes(32, "big")
 
@@ -204,6 +213,25 @@ def generate_self_signed(dns_names: List[str], ip_list: List[str],
     return _pem("CERTIFICATE", cert_der), _pem("EC PRIVATE KEY", key_der)
 
 
+def _write_pair(cert_path: str, key_path: str, cert_pem: str, key_pem: str) -> None:
+    """Write cert/key files, preserving the key file when unchanged."""
+    with open(cert_path, "w") as handle:
+        handle.write(cert_pem)
+    unchanged = False
+    if os.path.exists(key_path):
+        try:
+            unchanged = open(key_path).read() == key_pem
+        except Exception:
+            unchanged = False
+    if not unchanged:
+        with open(key_path, "w") as handle:
+            handle.write(key_pem)
+        try:
+            os.chmod(key_path, 0o600)
+        except Exception:
+            pass
+
+
 def ensure_cert_files(cert_path: str, key_path: str, dns_names: List[str],
                       ip_list: List[str], days: int = 3650,
                       common_name: str = "MirrorLAN") -> bool:
@@ -211,26 +239,193 @@ def ensure_cert_files(cert_path: str, key_path: str, dns_names: List[str],
     if os.path.exists(cert_path) and os.path.exists(key_path):
         return True
     cert_pem, key_pem = generate_self_signed(dns_names, ip_list, days, common_name)
-    with open(cert_path, "w") as handle:
-        handle.write(cert_pem)
-    with open(key_path, "w") as handle:
-        handle.write(key_pem)
-    try:
-        os.chmod(key_path, 0o600)
-    except Exception:
-        pass
+    _write_pair(cert_path, key_path, cert_pem, key_pem)
     return True
 
 
-def ensure_default_cert(config: "Config") -> bool:
-    """Create cert/key for this machine's LAN IPs if missing.
+def ensure_default_cert(config: "Config") -> str:
+    """Make sure a valid cert/key pair exists, renewing only when needed.
 
-    Single place for the logic previously duplicated in main.py and gui.py.
-    Returns True when the files exist (created now or already there).
+    Returns "ok" (kept as-is), "created", or "renewed:<reason>".
+    Renewal reuses the existing private key when readable (identity kept,
+    renewal is one scalar-mul ≈ 40ms); a fresh key is generated only when
+    the key file is missing or corrupt. Foreign certificates (different CN)
+    are never touched.
     """
-    from .net import local_ips
-
+    reason = needs_renewal(config)
+    if reason is None:
+        return "ok"
+    priv: Optional[int] = None
+    if reason not in ("missing", "unreadable"):
+        try:
+            with open(config.key_file) as handle:
+                priv = load_key_scalar(handle.read())
+        except Exception:
+            priv = None
     ips = ["127.0.0.1"] + [ip for ip in local_ips() if ip != "127.0.0.1"]
-    return ensure_cert_files(config.cert_file, config.key_file,
-                             list(config.dns_names), ips,
-                             config.cert_days, config.common_name)
+    cert_pem, key_pem = generate_self_signed(
+        list(config.dns_names), ips, config.cert_days, config.common_name,
+        priv=priv)
+    _write_pair(config.cert_file, config.key_file, cert_pem, key_pem)
+    return "created" if reason == "missing" else "renewed:" + reason
+
+
+# Renew when the cert expires within this window (checked at startup).
+RENEW_BEFORE_SECS = 30 * 86400
+
+
+def needs_renewal(config: "Config") -> Optional[str]:
+    """Why the current cert/key cannot be kept: missing, unreadable,
+    expired, expiring, or ips-changed. None means keep it untouched.
+
+    A parseable certificate with a foreign CN is left alone (None):
+    we never destroy credentials we did not create.
+    """
+    if not (os.path.exists(config.cert_file) and os.path.exists(config.key_file)):
+        return "missing"
+    try:
+        with open(config.cert_file) as handle:
+            info = inspect_cert(handle.read())
+    except Exception:
+        return "unreadable"
+    if info["cn"] != config.common_name:
+        return None  # foreign certificate: not ours to renew
+    now = time.time()
+    if info["not_after"] <= now:
+        return "expired"
+    if info["not_after"] - now < RENEW_BEFORE_SECS:
+        return "expiring"
+    want = {"127.0.0.1"} | {ip for ip in local_ips() if ip != "127.0.0.1"}
+    if not want <= set(info["ips"]):
+        return "ips-changed"
+    try:
+        with open(config.key_file) as handle:
+            load_key_scalar(handle.read())
+    except Exception:
+        return "unreadable"
+    return None
+
+
+def load_key_scalar(key_pem: str) -> int:
+    """Private scalar from our SEC1 EC private-key PEM. Raises ValueError."""
+    der = _pem_decode(key_pem)
+    _, outer, end = _der_read(der, 0)
+    if end != len(der):
+        raise ValueError("trailing data")
+    pos = 0
+    while pos < len(outer):
+        tag, val, pos = _der_read(outer, pos)
+        if tag == 0x04 and len(val) == 32:  # OCTET STRING: the scalar
+            return int.from_bytes(val, "big")
+    raise ValueError("no private scalar")
+
+
+def inspect_cert(cert_pem: str) -> dict:
+    """Read back {"cn", "not_after", "ips", "dns"} from a PEM certificate.
+
+    Tolerant reader for our own format; raises ValueError on anything
+    unexpected (callers treat that as "unreadable", never crash).
+    """
+    der = _pem_decode(cert_pem)
+    _, outer, end = _der_read(der, 0)
+    if end != len(der):
+        raise ValueError("trailing data")
+    _, tbs, _ = _der_read(outer, 0)
+    kids: List[Tuple[int, bytes]] = []
+    pos = 0
+    while pos < len(tbs):
+        tag, val, pos = _der_read(tbs, pos)
+        kids.append((tag, val))
+    idx = 0
+    if kids[0][0] == 0xA0:  # explicit [0] version
+        idx = 1
+    # serial, sigAlg, issuer, validity, subject, spki, then optionals
+    validity = kids[idx + 3][1]
+    q = 0
+    _, _, q = _der_read(validity, q)  # notBefore
+    _, na_raw, _ = _der_read(validity, q)  # notAfter (UTCTime)
+    try:
+        not_after = calendar.timegm(
+            time.strptime(na_raw.decode("ascii"), "%y%m%d%H%M%SZ"))
+    except Exception:
+        raise ValueError("bad validity")
+    cn = _find_cn(kids[idx + 4][1])
+    ips: List[str] = []
+    dns: List[str] = []
+    for tag, val in kids[idx + 6:]:
+        if tag != 0xA3:
+            continue
+        _, exts, _ = _der_read(val, 0)  # explicit wrapper -> SEQ
+        e = 0
+        while e < len(exts):
+            _, one, e = _der_read(exts, e)
+            o = 0
+            _, oid, o = _der_read(one, o)
+            otag, oval, o = _der_read(one, o)
+            if otag == 0x01:  # BOOLEAN critical: the octet STRING follows
+                _, oval, _ = _der_read(one, o)
+            elif otag != 0x04:
+                continue
+            octets = oval
+            if oid != _der_oid(2, 5, 29, 17)[2:] or not isinstance(octets, bytes):
+                continue
+            s = 0
+            _, san, _ = _der_read(octets, 0)
+            while s < len(san):
+                stag, sval, s = _der_read(san, s)
+                if stag == 0x87 and len(sval) == 4:  # iPAddress
+                    ips.append(".".join(str(b) for b in sval))
+                elif stag == 0x82:  # dNSName
+                    dns.append(sval.decode("ascii", "replace"))
+    return {"cn": cn, "not_after": not_after, "ips": ips, "dns": dns}
+
+
+def _find_cn(subject: bytes) -> str:
+    """CommonName from a Name SEQ. Empty string when absent."""
+    cn_oid = _der_oid(2, 5, 4, 3)[2:]
+    pos = 0
+    try:
+        while pos < len(subject):
+            _, aset, pos = _der_read(subject, pos)  # SET
+            ap = 0
+            while ap < len(aset):
+                _, attr, ap = _der_read(aset, ap)  # SEQ {oid, value}
+                bp = 0
+                _, oid, bp = _der_read(attr, bp)
+                if oid == cn_oid:
+                    _, cval, _ = _der_read(attr, bp)
+                    return cval.decode("utf-8", "replace")
+    except ValueError:
+        pass
+    return ""
+
+
+def _pem_decode(text: str) -> bytes:
+    """DER bytes from PEM text. Raises ValueError on garbage."""
+    try:
+        body = "".join(line.strip() for line in text.splitlines()
+                       if line.strip() and "-----" not in line)
+        return base64.b64decode(body)
+    except Exception:
+        raise ValueError("not PEM")
+
+
+def _der_read(buf: bytes, pos: int = 0) -> Tuple[int, bytes, int]:
+    """Read one TLV. Returns (tag, value, next_pos). Raises ValueError."""
+    if pos + 2 > len(buf):
+        raise ValueError("truncated")
+    tag = buf[pos]
+    first = buf[pos + 1]
+    if first & 0x80:
+        count = first & 0x7F
+        if count == 0 or count > 4 or pos + 2 + count > len(buf):
+            raise ValueError("bad length")
+        size = int.from_bytes(buf[pos + 2:pos + 2 + count], "big")
+        start = pos + 2 + count
+    else:
+        size = first
+        start = pos + 2
+    end = start + size
+    if end > len(buf):
+        raise ValueError("truncated")
+    return tag, buf[start:end], end
