@@ -34,27 +34,46 @@ button svg{display:block}
 const $ = id => document.getElementById(id);
 const remoteV = $('remote');
 let pc = null, vid = null, pollTimer = null, offerAt = 0, waitShown = false;
+let retryTimer = null, retryCount = 0, autoRetry = false;
 
 function showToast(t){ const el = $('toast'); el.textContent = t; el.style.display = 'block'; }
 function hideToast(){ $('toast').style.display = 'none'; waitShown = false; }
+
+function cancelRetry(){
+  if(retryTimer){ clearTimeout(retryTimer); retryTimer = null; }
+}
+function scheduleRetry(){
+  if(!autoRetry || retryTimer) return; // manual Leave stops everything; one pending retry max
+  const wait = Math.min(15000, 2000 * Math.pow(2, Math.min(retryCount, 3))); // 2s,4s,8s,15s…
+  retryCount++;
+  showToast('Connection lost — retrying…');
+  log('connection lost - retrying in ' + wait + 'ms');
+  retryTimer = setTimeout(() => { retryTimer = null; if(autoRetry) watch(true); }, wait);
+}
 
 function log(t){ console.log(t); }
 function makeId(){ return 'v-' + Math.random().toString(36).slice(2,8); }
 const ROOM = ((new URLSearchParams(location.search).get('room') || '').toLowerCase().match(/^[a-z0-9\-_]{0,32}$/) || [''])[0];
 log('room: ' + (ROOM || '(default)'));
 
-async function watch(){
-  leave(false);
-  vid = makeId();
+async function watch(keepVid){
+  cancelRetry();
+  cleanupConn();
+  autoRetry = true;
+  if(!keepVid || !vid){ vid = makeId(); retryCount = 0; }
   log('connecting as ' + vid + ' ...');
   try{
     pc = new RTCPeerConnection({ iceServers: [] }); // LAN only
+    const myPc = pc; // ignore late events from a previous connection
     pc.addTransceiver('video', { direction: 'recvonly' });
     pc.addTransceiver('audio', { direction: 'recvonly' });
-    pc.ontrack = e => { if(e.streams[0]){ remoteV.srcObject = e.streams[0]; unmuteAndPlay(); } };
+    pc.ontrack = e => { if(e.streams[0] && pc === myPc){ remoteV.srcObject = e.streams[0]; unmuteAndPlay(); } };
     pc.onconnectionstatechange = () => {
-      if(!pc) return;
-      log('connection: ' + pc.connectionState);
+      if(pc !== myPc) return;
+      const s = myPc.connectionState;
+      log('connection: ' + s);
+      if(s === 'connected'){ retryCount = 0; cancelRetry(); hideToast(); }
+      else if(s === 'disconnected' || s === 'failed' || s === 'closed'){ scheduleRetry(); }
     };
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -70,6 +89,10 @@ async function watch(){
     log('offer sent, waiting for server answer...');
     offerAt = Date.now();
     pollTimer = setInterval(async () => {
+      if(!waitShown && Date.now() - offerAt > 12000){
+        waitShown = true;
+        showToast('Waiting for a free slot — room may be full…');
+      }
       try{
         const r = await fetch('api/answer?id=' + encodeURIComponent(vid) + '&room=' + encodeURIComponent(ROOM));
         if(!r.ok) return;
@@ -81,14 +104,11 @@ async function watch(){
           log('connected - receiving screen');
         }
       }catch(e){}
-      if(!waitShown && Date.now() - offerAt > 12000){
-        waitShown = true;
-        showToast('Waiting for a free slot — room may be full…');
-      }
     }, 1200);
   }catch(e){
     console.error(e);
     log('error: ' + e.message);
+    scheduleRetry(); // e.g. server down: keep trying (X stops it)
   }
 }
 
@@ -103,15 +123,20 @@ remoteV.onclick = () => {
   if(remoteV.muted && remoteV.srcObject){ remoteV.muted = false; remoteV.play().catch(()=>{ remoteV.muted = true; }); }
 };
 
-function leave(msg = true){
+function cleanupConn(){
   if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
   hideToast();
-  if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM}), keepalive: true }); }catch(e){} }
-  if(pc){ try{pc.close();}catch(e){} pc = null; }
+  if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM}), keepalive: true }).catch(()=>{}); }catch(e){} }
+  if(pc){ try{ pc.onconnectionstatechange = null; pc.ontrack = null; pc.close(); }catch(e){} pc = null; }
   remoteV.srcObject = null;
+}
+function leave(msg = true){
+  autoRetry = false; // manual stop (X button / page close): no more retries
+  cancelRetry();
+  cleanupConn();
   if(msg) log('left');
 }
-$('watch').onclick = watch;
+$('watch').onclick = () => watch(false);
 $('leave').onclick = () => leave(true);
 const ICON_EXPAND = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
 const ICON_MIN = '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';

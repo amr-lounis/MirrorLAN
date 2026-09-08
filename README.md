@@ -4,7 +4,7 @@ Tiny HTTPS server for LAN screen sharing, with a Tkinter control panel and a min
 
 It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over TLS, redirects plain HTTP to HTTPS, and exposes a few `/api/*` endpoints so sharers and viewers can exchange offers/answers on the local network. Self-signed ECDSA certificates are generated with the standard library only — no OpenSSL needed.
 
-![MirrorLAN running with LAN addresses](readme/02.JPG)
+![MirrorLAN running with LAN addresses](readme/gui-running.JPG)
 
 ## Features
 
@@ -23,7 +23,7 @@ It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over TLS, redirects
 
 Rooms are in-memory only: a room disappears ~15 s after the sharer closes the page (missed heartbeats), and everything is cleared on server restart. Room names allow `a-z 0-9 - _` only, max 32 chars.
 
-**Max viewers** (default 1, up to 99) is chosen when creating the room. The sharer serves at most that many viewers — the badge shows `viewers/max` — and extra viewers wait: after ~12 s without a slot the viewer page shows "Waiting for a free slot", then connects automatically when someone leaves.
+**Max viewers** (default 1, up to 99) is chosen when creating the room. The sharer serves at most that many viewers — the badge shows `viewers/max` — and extra viewers wait: after ~12 s without a slot the viewer page shows "Waiting for a free slot", then connects automatically when someone leaves. When a viewer closes the page the slot frees instantly; brief network blips get a 5 s grace before the slot is released. If an active viewer's connection drops (server or network), the viewer page retries automatically with backoff (2s…15s) until the stream returns — pressing ✕ (Leave) stops retrying.
 
 ## Screenshots
 
@@ -31,33 +31,33 @@ Rooms are in-memory only: a room disappears ~15 s after the sharer closes the pa
 
 Open the app, pick a port, and press **Start Server**. Copy one of the LAN addresses for the other devices.
 
-![Server stopped](readme/01.JPG)
-![Server running with LAN addresses](readme/02.JPG)
+![Server stopped](readme/gui-stopped.JPG)
+![Server running with LAN addresses](readme/gui-running.JPG)
 
 ### 2. Create a room
 
 Open the address in a browser, type a room name, set **Max viewers** (1–99, default 1), and press **Share**.
 
-![New room](readme/03.JPG)
+![New room](readme/rooms-new.JPG)
 
 ### 3. Choose what to share
 
 The browser asks what to share — a single window or the entire screen (see [Monitor capture](#monitor-capture) · [Window capture](#window-capture)).
 
-![Share a window](readme/05-window.JPG)
-![Share the entire screen](readme/06-monitore.JPG)
+![Share a window](readme/picker-window.JPG)
+![Share the entire screen](readme/picker-screen.JPG)
 
 ### 4. Sharing live
 
 The sharer view shows the stream with the viewer count on top.
 
-![Sharing](readme/04.JPG)
+![Sharing](readme/sharer-live.JPG)
 
 ### 5. Watch from another device
 
 The room appears as live — press **Watch** to view the shared screen.
 
-![Live room](readme/07.JPG)
+![Live room](readme/rooms-live.JPG)
 
 ## Monitor capture
 
@@ -81,7 +81,7 @@ Turn any phone, tablet, or TV browser into a wireless second monitor:
 
 1. On Windows, extend your desktop: **Settings → System → Display → Extend these displays** (or `Win+P` → Extend). With a single physical screen, create a virtual one with https://github.com/VirtualDrivers/Virtual-Display-Driver
 
-![Extended displays in Windows settings](readme/ExtendDisplay.JPG)
+![Extended displays in Windows settings](readme/extend-display.JPG)
 2. In MirrorLAN, press **Share** and pick the extended/virtual display under the **Entire Screen** tab.
 3. Open the room from the other device's browser and press **Watch** — it now shows your second screen.
 

@@ -78,7 +78,17 @@ async function serveViewer(id, offerSdp){
       const s = pc.connectionState;
       if(s === 'failed') log('viewer ' + id + ' failed - check same network');
       if(s === 'closed' || s === 'disconnected' || s === 'failed'){
-        setTimeout(() => { try{pc.close();}catch(e){} if(pcs[id]===pc) delete pcs[id]; updateViewers(); }, 5000);
+        // 'closed' = deliberate leave -> drop at once so the slot frees immediately.
+        // 'disconnected'/'failed' may be a passing blip -> 5s grace to recover.
+        const wait = (s === 'closed') ? 0 : 5000;
+        setTimeout(() => {
+          if(pcs[id] !== pc) return;
+          const cur = pc.connectionState;
+          if(cur !== 'closed' && cur !== 'disconnected' && cur !== 'failed') return; // recovered meanwhile
+          try{pc.close();}catch(e){}
+          delete pcs[id];
+          updateViewers();
+        }, wait);
       }
     };
     // server is sendonly, no incoming media expected
