@@ -14,6 +14,13 @@ from typing import Dict, List, Tuple
 
 _ROOM_OK = re.compile(r"[a-z0-9\-_]*")
 
+# How long an unclaimed offer / undelivered answer survives (seconds).
+# Live viewers refresh their offer on every answer-poll, so only viewers
+# that vanished (crash, killed tab, dead network) are ever pruned.
+# Bounds memory and stops dead offers from delaying live viewers.
+OFFER_TTL = 90
+ANSWER_TTL = 90
+
 
 class SignalingStore:
     """Maps (room, viewer id) pairs to pending SDP offers and answers."""
@@ -27,6 +34,8 @@ class SignalingStore:
         self._lock = threading.Lock()
         self._offers: Dict[Tuple[str, str], str] = {}
         self._answers: Dict[Tuple[str, str], str] = {}
+        self._answer_ts: Dict[Tuple[str, str], float] = {}
+        self._seen: Dict[Tuple[str, str], float] = {}  # (room, id) -> last live touch
         self._sharers: Dict[str, float] = {}  # room -> last heartbeat epoch
 
     def _room(self, room: object) -> str:
@@ -36,21 +45,46 @@ class SignalingStore:
         return name
 
     def _check(self, viewer_id: object, sdp: object) -> tuple:
-        vid = str(viewer_id or "")[: self._max_id_len]
+        vid = str(viewer_id or "")
         blob = str(sdp or "")
         if not vid or not blob:
             raise ValueError("id and sdp are required")
+        if len(vid) > self._max_id_len:
+            raise ValueError("id too long")
         if len(blob) > self._max_sdp_len:
             raise ValueError("sdp too big")
         return vid, blob
+
+    def _valid_id(self, viewer_id: object) -> str:
+        """Viewer id, rejected (never silently truncated: two long ids
+        could otherwise collide onto one slot)."""
+        vid = str(viewer_id or "")
+        if not vid or len(vid) > self._max_id_len:
+            raise ValueError("bad id")
+        return vid
+
+    def _prune_locked(self) -> None:
+        """Drop dead viewers' offers/answers. Call with _lock held."""
+        now = time.monotonic()
+        for key, seen in list(self._seen.items()):
+            if now - seen > OFFER_TTL:
+                self._offers.pop(key, None)
+                self._seen.pop(key, None)
+        for key, posted in list(self._answer_ts.items()):
+            if now - posted > ANSWER_TTL:
+                self._answers.pop(key, None)
+                self._answer_ts.pop(key, None)
 
     def put_offer(self, viewer_id: object, sdp: object, room: object = "") -> Tuple[str, str]:
         """Store a viewer offer, dropping any stale answer. Returns (room, id)."""
         name = self._room(room)
         vid, blob = self._check(viewer_id, sdp)
         with self._lock:
+            self._prune_locked()
             self._offers[(name, vid)] = blob
             self._answers.pop((name, vid), None)
+            self._answer_ts.pop((name, vid), None)
+            self._seen[(name, vid)] = time.monotonic()
         return name, vid
 
     def put_answer(self, viewer_id: object, sdp: object, room: object = "") -> Tuple[str, str]:
@@ -58,7 +92,9 @@ class SignalingStore:
         name = self._room(room)
         vid, blob = self._check(viewer_id, sdp)
         with self._lock:
+            self._prune_locked()
             self._answers[(name, vid)] = blob
+            self._answer_ts[(name, vid)] = time.monotonic()
             self._offers.pop((name, vid), None)
         return name, vid
 
@@ -66,6 +102,7 @@ class SignalingStore:
         """All pending offers of one room (diagnostics/fallback)."""
         name = self._room(room)
         with self._lock:
+            self._prune_locked()
             return [{"id": vid, "sdp": blob}
                     for (rm, vid), blob in self._offers.items() if rm == name]
 
@@ -73,6 +110,7 @@ class SignalingStore:
         """Atomically pop one pending offer of a room. First claimer wins."""
         name = self._room(room)
         with self._lock:
+            self._prune_locked()
             for key in self._offers:
                 if key[0] == name:
                     vid = key[1]
@@ -80,17 +118,22 @@ class SignalingStore:
         return None
 
     def get_answer(self, viewer_id: object, room: object = "") -> str | None:
-        vid = str(viewer_id or "")[: self._max_id_len]
+        vid = self._valid_id(viewer_id)
         name = self._room(room)
         with self._lock:
+            self._prune_locked()
+            if (name, vid) in self._offers:
+                self._seen[(name, vid)] = time.monotonic()  # still waiting = still alive
             return self._answers.get((name, vid))
 
     def remove(self, viewer_id: object, room: object = "") -> None:
-        vid = str(viewer_id or "")[: self._max_id_len]
+        vid = self._valid_id(viewer_id)
         name = self._room(room)
         with self._lock:
             self._offers.pop((name, vid), None)
             self._answers.pop((name, vid), None)
+            self._answer_ts.pop((name, vid), None)
+            self._seen.pop((name, vid), None)
 
     def heartbeat_sharer(self, room: object = "") -> str:
         """Mark a room as live. Returns the room name."""
@@ -111,6 +154,7 @@ class SignalingStore:
         """Rooms with a live sharer or pending offers (stale sharers pruned)."""
         now = time.monotonic()  # monotonic: NTP jumps must not kill live rooms
         with self._lock:
+            self._prune_locked()
             stale = [room for room, seen in self._sharers.items()
                      if now - seen > self._sharer_timeout]
             for room in stale:
@@ -127,4 +171,6 @@ class SignalingStore:
         with self._lock:
             self._offers.clear()
             self._answers.clear()
+            self._answer_ts.clear()
+            self._seen.clear()
             self._sharers.clear()

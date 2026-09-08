@@ -82,7 +82,7 @@ async function watch(keepVid){
     log('offer sent, waiting for server answer...');
     offerAt = Date.now();
     waitShown = false;
-    pollTimer = setInterval(async () => {
+    const checkAnswer = async () => {
       if(!waitShown && Date.now() - offerAt > 12000){
         waitShown = true;
         showToast('Waiting for a free slot — room may be full…');
@@ -98,7 +98,9 @@ async function watch(keepVid){
           log('connected - receiving screen');
         }
       }catch(e){}
-    }, 1200);
+    };
+    pollTimer = setInterval(checkAnswer, 1000);
+    checkAnswer(); // first check at once: answers posted before our offer save ~1s
   }catch(e){
     console.error(e);
     log('error: ' + e.message);

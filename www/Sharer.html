@@ -116,7 +116,7 @@ $('share').onclick = async () => {
   paintSharerBtns();
   log('sharing live');
   screenStream.getVideoTracks()[0].addEventListener('ended', stopAll);
-  pollTimer = setInterval(pollOffers, 1500);
+  pollTimer = setInterval(pollOffers, 1000);
   pollOffers();
 };
 
