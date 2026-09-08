@@ -137,6 +137,24 @@ class SignalingStore:
                     return vid, blob, gen
         return None
 
+    def claim_known(self, room: object = "", known: object = None) -> Tuple[str, str, Optional[int]] | None:
+        """Pop the first pending offer from an already-known viewer id.
+
+        Used when the room is full: a re-offer replaces its stale link
+        without touching the waiting queue. Unknown ids are never served.
+        """
+        name = self._room(room)
+        if not isinstance(known, dict) or not known:
+            return None
+        with self._lock:
+            self._prune_locked()
+            for key in self._offers:
+                if key[0] == name and key[1] in known:
+                    vid = key[1]
+                    gen, blob = self._offers.pop(key)
+                    return vid, blob, gen
+        return None
+
     def check_departed(self, room: object = "", known: object = None) -> List[str]:
         """Ids from the sharer's known {id: gen} map that left the room.
 

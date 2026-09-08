@@ -174,17 +174,19 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
                         store.leave_sharer(data.get("room", ""))
                     elif path.path == "/api/claim":
                         room = data.get("room", "")
-                        gone = store.check_departed(room, data.get("known"))
+                        known = data.get("known")
+                        gone = store.check_departed(room, known)
+                        # Full room (accept=false): hand back ONLY re-offers
+                        # from already-served viewers; the waiting queue stays.
                         if data.get("accept", True):
                             claimed = store.claim_offer(room)
-                            if claimed is None:
-                                return self._json({"error": "empty", "gone": gone}, 404)
-                            vid, sdp, gen = claimed
-                            return self._json({"id": vid, "sdp": sdp, "gen": gen,
-                                               "gone": gone})
-                        # Full room: report departures without popping the
-                        # waiting queue (popped offers would be lost).
-                        return self._json({"gone": gone})
+                        else:
+                            claimed = store.claim_known(room, known)
+                        if claimed is None:
+                            return self._json({"error": "empty", "gone": gone}, 404)
+                        vid, sdp, gen = claimed
+                        return self._json({"id": vid, "sdp": sdp, "gen": gen,
+                                           "gone": gone})
                     else:
                         store.remove(data.get("id"), data.get("room", ""), data.get("gen"))
                 except ValueError as exc:

@@ -65,7 +65,19 @@ async function pollOffers(){
     let o = null;
     try{ o = await r.json(); }catch(e){}
     if(o) dropGone(o.gone); // departures apply even when full (queue untouched)
-    if(!full && r.ok && o && o.id && o.sdp && !pcs[o.id]) await serveViewer(o.id, o.sdp, o.gen);
+    if(r.ok && o && o.id && o.sdp){
+      if(pcs[o.id]){
+        // Same viewer re-offered (reconnect/retry): its old peer is
+        // definitionally gone — it closed it before re-offering — so
+        // replacing can never kill a live link. Skipping instead would
+        // eat the offer and strand the viewer on black forever.
+        log('viewer ' + o.id + ' re-offered - replacing stale link');
+        try{ pcs[o.id].onconnectionstatechange = null; pcs[o.id].close(); }catch(e){}
+        delete pcs[o.id];
+        delete pcGen[o.id];
+      }
+      await serveViewer(o.id, o.sdp, o.gen);
+    }
     if(netFails){ netFails = 0; hideToast(); } // back online
   }catch(e){ if(++netFails === 3) showToast('Connection lost — retrying…'); }
   updateViewers();
