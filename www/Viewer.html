@@ -21,6 +21,23 @@
 const remoteV = $('remote');
 let pc = null, vid = null, vgen = 0, pollTimer = null, offerAt = 0, waitShown = false;
 let retryTimer = null, retryCount = 0, autoRetry = false;
+let watchdogTimer = null;
+const WATCHDOG_MS = 30000; // waiting for the first answer with no recovery =
+// black forever (lost offer, wiped server, failed serve). Restart the cycle.
+
+function cancelWatchdog(){
+  if(watchdogTimer){ clearTimeout(watchdogTimer); watchdogTimer = null; }
+}
+function armWatchdog(){
+  cancelWatchdog();
+  watchdogTimer = setTimeout(() => {
+    watchdogTimer = null;
+    if(!autoRetry) return; // left meanwhile (X button / page close)
+    if(pc && pc.connectionState === 'connected') return; // recovered meanwhile
+    log('no answer for 30s - restarting watch');
+    watch(true); // same id, next gen: fresh offer + fresh pc
+  }, WATCHDOG_MS);
+}
 
 function cancelRetry(){
   if(retryTimer){ clearTimeout(retryTimer); retryTimer = null; }
@@ -50,6 +67,7 @@ log('room: ' + (ROOM || '(default)'));
 
 async function watch(keepVid){
   cancelRetry();
+  cancelWatchdog();
   cleanupConn();
   autoRetry = true;
   paintViewerBtns();
@@ -66,7 +84,7 @@ async function watch(keepVid){
       if(pc !== myPc) return;
       const s = myPc.connectionState;
       log('connection: ' + s);
-      if(s === 'connected'){ retryCount = 0; cancelRetry(); hideToast(); }
+      if(s === 'connected'){ retryCount = 0; cancelRetry(); cancelWatchdog(); hideToast(); }
       else if(s === 'disconnected' || s === 'failed' || s === 'closed'){ scheduleRetry(); }
     };
     const offer = await pc.createOffer();
@@ -94,6 +112,7 @@ async function watch(keepVid){
         const data = await r.json();
         if(data.sdp){
           clearInterval(pollTimer); pollTimer = null;
+          cancelWatchdog();
           hideToast();
           await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
           log('connected - receiving screen');
@@ -102,6 +121,7 @@ async function watch(keepVid){
     };
     pollTimer = setInterval(checkAnswer, 1000);
     checkAnswer(); // first check at once: answers posted before our offer save ~1s
+    armWatchdog();
   }catch(e){
     console.error(e);
     log('error: ' + e.message);
@@ -116,6 +136,7 @@ remoteV.onclick = () => {
 
 function cleanupConn(){
   if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+  cancelWatchdog();
   hideToast();
   if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM, gen: vgen}), keepalive: true }).catch(()=>{}); }catch(e){} }
   if(pc){ try{ pc.onconnectionstatechange = null; pc.ontrack = null; pc.close(); }catch(e){} pc = null; }

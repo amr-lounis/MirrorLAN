@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1700" font-family="system-ui, 'Segoe UI', Arial, sans-serif">
+<defs>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8b93a7"/></marker>
+<marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4f7cff"/></marker>
+<marker id="arrBs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M10,0 L0,5 L10,10 z" fill="#4f7cff"/></marker>
+</defs>
+<rect x="0" y="0" width="1240" height="1700" fill="#0f1115"/>
+<text x="620" y="34" text-anchor="middle" font-size="22" font-weight="bold" fill="#eef1f6">MirrorLAN — Activity Diagram</text>
+<text x="620" y="56" text-anchor="middle" font-size="13" fill="#8b93a7">screen share over LAN: GUI start → rooms → WebRTC signaling → direct P2P media</text>
+
+<!-- swimlanes -->
+<rect x="20" y="70" width="380" height="1590" fill="#0c0f14"/>
+<rect x="420" y="70" width="400" height="1590" fill="#0c0f14"/>
+<rect x="840" y="70" width="380" height="1590" fill="#0c0f14"/>
+<rect x="20" y="70" width="380" height="44" fill="#12151c" stroke="#2a2f3a"/>
+<rect x="420" y="70" width="400" height="44" fill="#12151c" stroke="#2a2f3a"/>
+<rect x="840" y="70" width="380" height="44" fill="#12151c" stroke="#2a2f3a"/>
+<text x="210" y="98" text-anchor="middle" font-size="15" font-weight="bold" fill="#eef1f6">Sharer (browser)</text>
+<text x="620" y="98" text-anchor="middle" font-size="15" font-weight="bold" fill="#eef1f6">Server (Python)</text>
+<text x="1030" y="98" text-anchor="middle" font-size="15" font-weight="bold" fill="#eef1f6">Viewer (browser)</text>
+<line x1="420" y1="70" x2="420" y2="1660" stroke="#2a2f3a"/>
+<line x1="820" y1="70" x2="820" y2="1660" stroke="#2a2f3a"/>
+
+<!-- ============ SERVER ============ -->
+<circle cx="620" cy="150" r="9" fill="#22c55e"/>
+<line x1="620" y1="159" x2="620" y2="170" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="500" y="170" width="240" height="40" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="620" y="195" text-anchor="middle" font-size="12.5" fill="#eef1f6">Launch GUI / --serve</text>
+<line x1="620" y1="210" x2="620" y2="230" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<polygon points="620,230 720,262 620,294 520,262" fill="#171a21" stroke="#22c55e" stroke-width="2"/>
+<text x="620" y="267" text-anchor="middle" font-size="11.5" fill="#eef1f6">cert valid?</text>
+<text x="632" y="308" font-size="10" fill="#ffd479">no</text>
+<line x1="620" y1="294" x2="620" y2="312" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="500" y="312" width="240" height="44" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="620" y="331" text-anchor="middle" font-size="12.5" fill="#eef1f6">Create / renew cert</text>
+<text x="620" y="346" text-anchor="middle" font-size="11" fill="#8b93a7">(keep key)</text>
+<line x1="620" y1="356" x2="620" y2="372" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<polygon points="620,372 628,380 620,388 612,380" fill="#4f7cff"/>
+<polyline points="720,262 775,262 775,380 630,380" fill="none" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="745" y="252" font-size="10" fill="#ffd479">yes</text>
+<line x1="620" y1="388" x2="620" y2="400" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="500" y="400" width="240" height="40" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="620" y="425" text-anchor="middle" font-size="12.5" fill="#eef1f6">Bind HTTPS :443 + redirect :80</text>
+<line x1="620" y1="440" x2="620" y2="460" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="500" y="460" width="240" height="40" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="620" y="485" text-anchor="middle" font-size="12.5" fill="#eef1f6">Show LAN addresses</text>
+<line x1="620" y1="500" x2="620" y2="520" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="500" y="520" width="240" height="40" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="620" y="545" text-anchor="middle" font-size="12.5" fill="#eef1f6">Serve pages + signaling API</text>
+<line x1="620" y1="560" x2="620" y2="616" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="500" y="616" width="240" height="36" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="620" y="639" text-anchor="middle" font-size="12.5" fill="#eef1f6">GET /api/rooms</text>
+<line x1="620" y1="652" x2="620" y2="768" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="470" y="768" width="300" height="232" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="620" y="795" text-anchor="middle" font-size="13" font-weight="bold" fill="#eef1f6">Signaling store</text>
+<text x="620" y="813" text-anchor="middle" font-size="11" fill="#8b93a7">offers · answers · rooms · gone</text>
+<text x="620" y="830" text-anchor="middle" font-size="11" fill="#8b93a7">TTL 90s · departed 120s · rooms ~15s</text>
+<rect x="500" y="1210" width="240" height="44" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="620" y="1237" text-anchor="middle" font-size="12.5" fill="#eef1f6">remove + record departed</text>
+<rect x="490" y="1560" width="260" height="40" rx="10" fill="#171a21" stroke="#ef4444" stroke-width="1.5"/>
+<text x="620" y="1585" text-anchor="middle" font-size="12.5" fill="#eef1f6">Stop (X / Ctrl+C) → clear store</text>
+<line x1="620" y1="1600" x2="620" y2="1618" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<circle cx="620" cy="1630" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<circle cx="620" cy="1630" r="5" fill="#ef4444"/>
+
+<!-- ============ SHARER ============ -->
+<circle cx="210" cy="590" r="9" fill="#22c55e"/>
+<line x1="210" y1="599" x2="210" y2="620" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="80" y="620" width="260" height="44" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="210" y="639" text-anchor="middle" font-size="12.5" fill="#eef1f6">Open https://IP — room</text>
+<text x="210" y="654" text-anchor="middle" font-size="11" fill="#8b93a7">+ max, Share</text>
+<line x1="210" y1="664" x2="210" y2="690" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="80" y="690" width="260" height="40" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="210" y="714" text-anchor="middle" font-size="12.5" fill="#eef1f6">Pick window / screen</text>
+<line x1="210" y1="730" x2="210" y2="756" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="80" y="756" width="260" height="36" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="210" y="779" text-anchor="middle" font-size="12.5" fill="#eef1f6">Heartbeat every 1s</text>
+<line x1="210" y1="792" x2="210" y2="818" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="80" y="818" width="260" height="36" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="210" y="841" text-anchor="middle" font-size="12.5" fill="#eef1f6">Claim (known, accept)</text>
+<line x1="210" y1="854" x2="210" y2="877" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<polygon points="210,877 310,905 210,933 110,905" fill="#171a21" stroke="#22c55e" stroke-width="2"/>
+<text x="210" y="909" text-anchor="middle" font-size="11.5" fill="#eef1f6">offer?</text>
+<text x="222" y="949" font-size="10" fill="#ffd479">yes</text>
+<line x1="210" y1="933" x2="210" y2="960" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="80" y="960" width="260" height="40" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="210" y="984" text-anchor="middle" font-size="12.5" fill="#eef1f6">POST answer → serve</text>
+<line x1="210" y1="1000" x2="210" y2="1026" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="80" y="1026" width="260" height="36" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="210" y="1049" text-anchor="middle" font-size="12.5" fill="#eef1f6">Badge n/max</text>
+<polyline points="340,1044 375,1044 375,836 340,836" fill="none" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="383" y="944" font-size="10" fill="#8b93a7">1s</text>
+<line x1="310" y1="905" x2="375" y2="905" stroke="#8b93a7" stroke-width="1.5"/>
+<text x="322" y="899" font-size="10" fill="#ffd479">no</text>
+<rect x="40" y="1100" width="320" height="70" rx="8" fill="none" stroke="#8b93a7" stroke-width="1" stroke-dasharray="5,4"/>
+<text x="200" y="1123" text-anchor="middle" font-size="10.5" fill="#8b93a7">each poll: drop gone ids</text>
+<text x="200" y="1139" text-anchor="middle" font-size="10.5" fill="#8b93a7">re-offer replaces stale link</text>
+<text x="200" y="1155" text-anchor="middle" font-size="10.5" fill="#8b93a7">full: accept=false, queue kept</text>
+<rect x="80" y="1400" width="260" height="44" rx="10" fill="#171a21" stroke="#ef4444" stroke-width="1.5"/>
+<text x="210" y="1419" text-anchor="middle" font-size="12.5" fill="#eef1f6">Stop / close tab</text>
+<text x="210" y="1434" text-anchor="middle" font-size="11" fill="#8b93a7">→ sharer/leave</text>
+<polyline points="210,1444 210,1580 490,1580" fill="none" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="350" y="1572" text-anchor="middle" font-size="11" fill="#9db4ff">leave</text>
+
+<!-- ============ VIEWER ============ -->
+<circle cx="1030" cy="590" r="9" fill="#22c55e"/>
+<line x1="1030" y1="599" x2="1030" y2="620" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="900" y="620" width="260" height="36" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="1030" y="643" text-anchor="middle" font-size="12.5" fill="#eef1f6">Open URL — rooms list</text>
+<line x1="1030" y1="656" x2="1030" y2="682" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<polygon points="1030,682 1130,710 1030,738 930,710" fill="#171a21" stroke="#22c55e" stroke-width="2"/>
+<text x="1030" y="714" text-anchor="middle" font-size="11.5" fill="#eef1f6">live room?</text>
+<polyline points="930,710 865,710 865,648 900,648" fill="none" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="918" y="704" font-size="10" fill="#ffd479">no</text>
+<text x="1042" y="762" font-size="10" fill="#ffd479">yes</text>
+<line x1="1030" y1="738" x2="1030" y2="780" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="900" y="780" width="260" height="40" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="1030" y="797" text-anchor="middle" font-size="12.5" fill="#eef1f6">Watch → POST offer</text>
+<text x="1030" y="811" text-anchor="middle" font-size="11" fill="#8b93a7">(id, gen)</text>
+<line x1="1030" y1="820" x2="1030" y2="846" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="900" y="846" width="260" height="36" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="1030" y="869" text-anchor="middle" font-size="12.5" fill="#eef1f6">Poll answer (now + 1s)</text>
+<line x1="1030" y1="882" x2="1030" y2="908" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<polygon points="1030,908 1130,936 1030,964 930,936" fill="#171a21" stroke="#22c55e" stroke-width="2"/>
+<text x="1030" y="940" text-anchor="middle" font-size="11.5" fill="#eef1f6">answer?</text>
+<polyline points="930,936 865,936 865,864 900,864" fill="none" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="918" y="930" font-size="10" fill="#ffd479">no</text>
+<text x="900" y="946" text-anchor="middle" font-size="10" fill="#8b93a7">12s→toast</text>
+<text x="1042" y="982" font-size="10" fill="#ffd479">yes</text>
+<line x1="1030" y1="964" x2="1030" y2="990" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="900" y="990" width="260" height="40" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="1030" y="1014" text-anchor="middle" font-size="12.5" fill="#eef1f6">Watch P2P stream</text>
+<line x1="1030" y1="1030" x2="1030" y2="1056" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<polygon points="1030,1056 1135,1084 1030,1112 925,1084" fill="#171a21" stroke="#22c55e" stroke-width="2"/>
+<text x="1030" y="1088" text-anchor="middle" font-size="11.5" fill="#eef1f6">link drops?</text>
+<polyline points="925,1084 895,1084 895,1138" fill="none" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="910" y="1076" font-size="10" fill="#ffd479">yes</text>
+<rect x="860" y="1138" width="150" height="44" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
+<text x="935" y="1156" text-anchor="middle" font-size="11.5" fill="#eef1f6">retry w/ backoff</text>
+<text x="935" y="1170" text-anchor="middle" font-size="10.5" fill="#8b93a7">(same id, gen+1)</text>
+<polyline points="915,1182 915,1330 1195,1330 1195,800 1160,800" fill="none" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="1042" y="1165" font-size="10" fill="#ffd479">no</text>
+<line x1="1030" y1="1112" x2="1030" y2="1210" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="930" y="1210" width="200" height="44" rx="10" fill="#171a21" stroke="#ef4444" stroke-width="1.5"/>
+<text x="1030" y="1236" text-anchor="middle" font-size="12.5" fill="#eef1f6">X → POST leave</text>
+<line x1="1030" y1="1254" x2="1030" y2="1298" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<circle cx="1030" cy="1310" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<circle cx="1030" cy="1310" r="5" fill="#ef4444"/>
+
+<!-- ============ cross-lane API arrows ============ -->
+<line x1="900" y1="638" x2="740" y2="638" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="820" y="630" text-anchor="middle" font-size="11" fill="#9db4ff">GET rooms</text>
+<line x1="340" y1="774" x2="470" y2="774" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="405" y="766" text-anchor="middle" font-size="11" fill="#9db4ff">heartbeat 1s</text>
+<line x1="900" y1="800" x2="770" y2="800" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="835" y="792" text-anchor="middle" font-size="11" fill="#9db4ff">POST offer</text>
+<line x1="340" y1="830" x2="470" y2="830" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="405" y="822" text-anchor="middle" font-size="11" fill="#9db4ff">claim</text>
+<line x1="470" y1="848" x2="340" y2="848" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="405" y="862" text-anchor="middle" font-size="11" fill="#9db4ff">offer + gone</text>
+<line x1="900" y1="864" x2="770" y2="864" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="835" y="856" text-anchor="middle" font-size="11" fill="#9db4ff">poll answer</text>
+<line x1="770" y1="880" x2="900" y2="880" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="835" y="894" text-anchor="middle" font-size="11" fill="#9db4ff">answer</text>
+<line x1="340" y1="980" x2="470" y2="980" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="405" y="972" text-anchor="middle" font-size="11" fill="#9db4ff">POST answer</text>
+<line x1="930" y1="1232" x2="740" y2="1232" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="835" y="1224" text-anchor="middle" font-size="11" fill="#9db4ff">POST leave</text>
+
+<!-- direct P2P media -->
+<line x1="340" y1="1360" x2="900" y2="1360" stroke="#4f7cff" stroke-width="2.5" marker-start="url(#arrBs)" marker-end="url(#arrB)"/>
+<text x="620" y="1350" text-anchor="middle" font-size="12" font-weight="bold" fill="#9db4ff">WebRTC media — direct browser ↔ browser (no server)</text>
+</svg>
