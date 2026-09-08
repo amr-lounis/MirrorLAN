@@ -19,7 +19,7 @@
 <script src="shared.js"></script>
 <script>
 const remoteV = $('remote');
-let pc = null, vid = null, pollTimer = null, offerAt = 0, waitShown = false;
+let pc = null, vid = null, vgen = 0, pollTimer = null, offerAt = 0, waitShown = false;
 let retryTimer = null, retryCount = 0, autoRetry = false;
 
 function cancelRetry(){
@@ -53,7 +53,8 @@ async function watch(keepVid){
   cleanupConn();
   autoRetry = true;
   paintViewerBtns();
-  if(!keepVid || !vid){ vid = makeId(); retryCount = 0; }
+  if(!keepVid || !vid){ vid = makeId(); vgen = 0; retryCount = 0; }
+  else { vgen++; } // same viewer, new attempt: old leaves must not match us
   log('connecting as ' + vid + ' ...');
   try{
     pc = new RTCPeerConnection({ iceServers: [] }); // LAN only
@@ -78,7 +79,7 @@ async function watch(keepVid){
       setTimeout(res, 3000);
     });
     await fetch('api/offer', { method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ id: vid, sdp: pc.localDescription.sdp, room: ROOM }) });
+      body: JSON.stringify({ id: vid, sdp: pc.localDescription.sdp, room: ROOM, gen: vgen }) });
     log('offer sent, waiting for server answer...');
     offerAt = Date.now();
     waitShown = false;
@@ -116,7 +117,7 @@ remoteV.onclick = () => {
 function cleanupConn(){
   if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
   hideToast();
-  if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM}), keepalive: true }).catch(()=>{}); }catch(e){} }
+  if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM, gen: vgen}), keepalive: true }).catch(()=>{}); }catch(e){} }
   if(pc){ try{ pc.onconnectionstatechange = null; pc.ontrack = null; pc.close(); }catch(e){} pc = null; }
   remoteV.srcObject = null;
 }

@@ -171,10 +171,10 @@ CLI flags: `--serve [PORT]`, `--dir PATH`, `--https-port PORT`, `--http-port POR
 - `GET /api/rooms` — list active rooms
 - `GET /api/offers?room=` — list viewer offers in a room
 - `GET /api/answer?id=&room=` — fetch an answer (404 `not-ready` if missing)
-- `POST /api/offer` `{id, sdp, room}` — publish a viewer offer
+- `POST /api/offer` `{id, sdp, room, gen}` — publish a viewer offer (`gen`: viewer generation, bumps on every retry)
 - `POST /api/answer` `{id, sdp, room}` — publish an answer
-- `POST /api/claim` `{room}` — sharer claims the next offer (404 `empty`)
-- `POST /api/leave` `{id, room}` — remove an offer/answer
+- `POST /api/claim` `{room, known, accept}` — sharer claims the next offer (404 `empty`); both answers carry `gone: [...]` — served viewer ids (with matching generation) that pressed Leave, so the sharer drops them within ~1 s instead of waiting ~10 s for ICE timeout. `accept: false` reports departures without popping the waiting queue (used when the room is full)
+- `POST /api/leave` `{id, room, gen}` — remove an offer/answer and notify the sharer
 - `POST /api/sharer/heartbeat` `{room}` / `POST /api/sharer/leave` `{room}`
 
 ## Security

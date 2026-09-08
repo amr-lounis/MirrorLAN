@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import threading
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 _ROOM_OK = re.compile(r"[a-z0-9\-_]*")
 
@@ -20,6 +20,10 @@ _ROOM_OK = re.compile(r"[a-z0-9\-_]*")
 # Bounds memory and stops dead offers from delaying live viewers.
 OFFER_TTL = 90
 ANSWER_TTL = 90
+
+# How long a recorded viewer departure is reported to sharers (seconds).
+# Sharers poll every second, so this is generous; it only bounds memory.
+DEPARTED_TTL = 120
 
 
 class SignalingStore:
@@ -32,10 +36,11 @@ class SignalingStore:
         self._max_room_len = max_room_len
         self._sharer_timeout = sharer_timeout
         self._lock = threading.Lock()
-        self._offers: Dict[Tuple[str, str], str] = {}
+        self._offers: Dict[Tuple[str, str], Tuple[Optional[int], str]] = {}
         self._answers: Dict[Tuple[str, str], str] = {}
         self._answer_ts: Dict[Tuple[str, str], float] = {}
         self._seen: Dict[Tuple[str, str], float] = {}  # (room, id) -> last live touch
+        self._departed: Dict[Tuple[str, str, int], float] = {}  # (room, id, gen) -> left at
         self._sharers: Dict[str, float] = {}  # room -> last heartbeat epoch
 
     def _room(self, room: object) -> str:
@@ -74,17 +79,28 @@ class SignalingStore:
             if now - posted > ANSWER_TTL:
                 self._answers.pop(key, None)
                 self._answer_ts.pop(key, None)
+        for key, left in list(self._departed.items()):
+            if now - left > DEPARTED_TTL:
+                self._departed.pop(key, None)
 
-    def put_offer(self, viewer_id: object, sdp: object, room: object = "") -> Tuple[str, str]:
-        """Store a viewer offer, dropping any stale answer. Returns (room, id)."""
+    def put_offer(self, viewer_id: object, sdp: object, room: object = "",
+                  gen: object = None) -> Tuple[str, str]:
+        """Store a viewer offer, dropping any stale answer. Returns (room, id).
+
+        A fresh offer proves the viewer is alive again, so any recorded
+        departure for (room, id) — any generation — is forgotten.
+        """
         name = self._room(room)
         vid, blob = self._check(viewer_id, sdp)
+        gen = gen if isinstance(gen, int) and not isinstance(gen, bool) else None
         with self._lock:
             self._prune_locked()
-            self._offers[(name, vid)] = blob
+            self._offers[(name, vid)] = (gen, blob)
             self._answers.pop((name, vid), None)
             self._answer_ts.pop((name, vid), None)
             self._seen[(name, vid)] = time.monotonic()
+            for key in [k for k in self._departed if k[0] == name and k[1] == vid]:
+                del self._departed[key]
         return name, vid
 
     def put_answer(self, viewer_id: object, sdp: object, room: object = "") -> Tuple[str, str]:
@@ -104,18 +120,41 @@ class SignalingStore:
         with self._lock:
             self._prune_locked()
             return [{"id": vid, "sdp": blob}
-                    for (rm, vid), blob in self._offers.items() if rm == name]
+                    for (rm, vid), (_, blob) in self._offers.items() if rm == name]
 
-    def claim_offer(self, room: object = "") -> Tuple[str, str] | None:
-        """Atomically pop one pending offer of a room. First claimer wins."""
+    def claim_offer(self, room: object = "") -> Tuple[str, str, Optional[int]] | None:
+        """Atomically pop one pending offer of a room.
+
+        Returns (viewer id, sdp, generation) or None. First claimer wins.
+        """
         name = self._room(room)
         with self._lock:
             self._prune_locked()
             for key in self._offers:
                 if key[0] == name:
                     vid = key[1]
-                    return vid, self._offers.pop(key)
+                    gen, blob = self._offers.pop(key)
+                    return vid, blob, gen
         return None
+
+    def check_departed(self, room: object = "", known: object = None) -> List[str]:
+        """Ids from the sharer's known {id: gen} map that left the room.
+
+        A generation mismatch means "stale leave vs. fresh connection"
+        and is ignored: only an exact (id, gen) match drops a slot.
+        """
+        name = self._room(room)
+        if not isinstance(known, dict) or not known:
+            return []
+        clean = {k: v for k, v in known.items()
+                 if isinstance(k, str) and isinstance(v, int)
+                 and not isinstance(v, bool)}
+        if not clean:
+            return []
+        with self._lock:
+            self._prune_locked()
+            return [vid for (rm, vid, gen) in self._departed
+                    if rm == name and clean.get(vid) == gen]
 
     def get_answer(self, viewer_id: object, room: object = "") -> str | None:
         vid = self._valid_id(viewer_id)
@@ -126,14 +165,20 @@ class SignalingStore:
                 self._seen[(name, vid)] = time.monotonic()  # still waiting = still alive
             return self._answers.get((name, vid))
 
-    def remove(self, viewer_id: object, room: object = "") -> None:
+    def remove(self, viewer_id: object, room: object = "", gen: object = None) -> None:
         vid = self._valid_id(viewer_id)
         name = self._room(room)
+        if not (isinstance(gen, int) and not isinstance(gen, bool)):
+            gen = None
         with self._lock:
             self._offers.pop((name, vid), None)
             self._answers.pop((name, vid), None)
             self._answer_ts.pop((name, vid), None)
             self._seen.pop((name, vid), None)
+            if gen is not None:
+                # Recorded for the sharer's next poll; forgotten on the
+                # viewer's next offer (put_offer) or after DEPARTED_TTL.
+                self._departed[(name, vid, gen)] = time.monotonic()
 
     def heartbeat_sharer(self, room: object = "") -> str:
         """Mark a room as live. Returns the room name."""
@@ -173,4 +218,5 @@ class SignalingStore:
             self._answers.clear()
             self._answer_ts.clear()
             self._seen.clear()
+            self._departed.clear()
             self._sharers.clear()

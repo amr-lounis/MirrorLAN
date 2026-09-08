@@ -20,6 +20,20 @@ class ServerError(Exception):
     """Raised when the server cannot start (bad cert, busy port, ...)."""
 
 
+class _ThreadedServer(ThreadingHTTPServer):
+    """Threaded server sized for join storms (up to 99 viewers at once).
+
+    daemon_threads: stuck clients never block shutdown.
+    request_queue_size MUST be a class attribute: listen() runs inside
+    __init__ (server_bind), so assigning it on the instance afterwards
+    would silently keep the default backlog of 5 and SYN-flood bursts
+    would get RST (observed as ConnectionResetError on clients).
+    """
+
+    daemon_threads = True
+    request_queue_size = 512
+
+
 _CORS_METHODS = "GET, POST, OPTIONS"
 _CORS_HEADERS = "Content-Type"
 
@@ -150,7 +164,8 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
                     return self._json({"error": "body too large"}, 413, close=True)
                 try:
                     if path.path == "/api/offer":
-                        store.put_offer(data.get("id"), data.get("sdp"), data.get("room", ""))
+                        store.put_offer(data.get("id"), data.get("sdp"), data.get("room", ""),
+                                        data.get("gen"))
                     elif path.path == "/api/answer":
                         store.put_answer(data.get("id"), data.get("sdp"), data.get("room", ""))
                     elif path.path == "/api/sharer/heartbeat":
@@ -158,12 +173,20 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
                     elif path.path == "/api/sharer/leave":
                         store.leave_sharer(data.get("room", ""))
                     elif path.path == "/api/claim":
-                        claimed = store.claim_offer(data.get("room", ""))
-                        if claimed is None:
-                            return self._json({"error": "empty"}, 404)
-                        return self._json({"id": claimed[0], "sdp": claimed[1]})
+                        room = data.get("room", "")
+                        gone = store.check_departed(room, data.get("known"))
+                        if data.get("accept", True):
+                            claimed = store.claim_offer(room)
+                            if claimed is None:
+                                return self._json({"error": "empty", "gone": gone}, 404)
+                            vid, sdp, gen = claimed
+                            return self._json({"id": vid, "sdp": sdp, "gen": gen,
+                                               "gone": gone})
+                        # Full room: report departures without popping the
+                        # waiting queue (popped offers would be lost).
+                        return self._json({"gone": gone})
                     else:
-                        store.remove(data.get("id"), data.get("room", ""))
+                        store.remove(data.get("id"), data.get("room", ""), data.get("gen"))
                 except ValueError as exc:
                     return self._json({"error": str(exc)}, 400)
                 return self._json({"ok": True})
@@ -206,14 +229,12 @@ class ServerManager:
                 raise ServerError("bad cert.pem/key.pem (%s)" % exc)
             handler = create_api_handler(self.store, self.config.www_dir)
             try:
-                server = ThreadingHTTPServer(("0.0.0.0", self.config.https_port), handler)
+                server = _ThreadedServer(("0.0.0.0", self.config.https_port), handler)
             except PermissionError:
                 raise ServerError("cannot bind port %d (admin/root required)"
                                   % self.config.https_port)
             except OSError as exc:
                 raise ServerError("cannot bind port %d (%s)" % (self.config.https_port, exc))
-            server.daemon_threads = True  # stuck clients never block shutdown
-            server.request_queue_size = 128  # burst joins (up to 99 viewers/room)
             try:
                 server.socket = context.wrap_socket(server.socket, server_side=True)
             except Exception as exc:
@@ -228,11 +249,9 @@ class ServerManager:
     def _launch_redirect(self, handler: type) -> bool:
         """Best-effort http->https redirect on the plain http port."""
         try:
-            redirect = ThreadingHTTPServer(("0.0.0.0", self.config.http_port), handler)
+            redirect = _ThreadedServer(("0.0.0.0", self.config.http_port), handler)
         except OSError:
             return False
-        redirect.daemon_threads = True
-        redirect.request_queue_size = 128
         threading.Thread(target=redirect.serve_forever, daemon=True).start()
         self._redirect = redirect
         return True

@@ -21,7 +21,7 @@
 <script src="shared.js"></script>
 <script>
 const preview = $('preview');
-let screenStream = null, pcs = {}, pollTimer = null, starting = false, netFails = 0;
+let screenStream = null, pcs = {}, pcGen = {}, pollTimer = null, starting = false, netFails = 0;
 
 function updateViewers(){
   const n = Object.keys(pcs).length;
@@ -42,25 +42,40 @@ const MAXV = (() => {
 })();
 log('room: ' + (ROOM || '(default)') + ' max: ' + MAXV);
 
+function dropGone(gone){
+  // Viewers whose leave reached the server drop at once (next poll is ≤1s).
+  // Generation match is verified server-side; unknown ids are ignored.
+  if(!Array.isArray(gone)) return;
+  for(const id of gone){
+    const pc = pcs[id];
+    if(!pc) continue;
+    log('viewer ' + id + ' left - dropping at once');
+    try{ pc.onconnectionstatechange = null; pc.close(); }catch(e){}
+    delete pcs[id];
+    delete pcGen[id];
+  }
+}
+
 async function pollOffers(){
   roomPing(false);
-  if(Object.keys(pcs).length >= MAXV) return updateViewers(); // full: heartbeat only
+  const full = Object.keys(pcs).length >= MAXV;
   try{
     const r = await fetch('api/claim', { method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ room: ROOM }) });
-    if(r.ok){
-      const o = await r.json();
-      if(o.id && o.sdp && !pcs[o.id]) await serveViewer(o.id, o.sdp);
-    }
+      body: JSON.stringify({ room: ROOM, known: pcGen, accept: !full }) });
+    let o = null;
+    try{ o = await r.json(); }catch(e){}
+    if(o) dropGone(o.gone); // departures apply even when full (queue untouched)
+    if(!full && r.ok && o && o.id && o.sdp && !pcs[o.id]) await serveViewer(o.id, o.sdp, o.gen);
     if(netFails){ netFails = 0; hideToast(); } // back online
   }catch(e){ if(++netFails === 3) showToast('Connection lost — retrying…'); }
   updateViewers();
 }
 
-async function serveViewer(id, offerSdp){
+async function serveViewer(id, offerSdp, offerGen){
   try{
     const pc = new RTCPeerConnection({ iceServers: [] }); // LAN only, offline
     pcs[id] = pc;
+    pcGen[id] = Number.isFinite(offerGen) ? offerGen : null;
     screenStream.getTracks().forEach(t => pc.addTrack(t, screenStream));
     pc.onconnectionstatechange = () => {
       updateViewers();
@@ -76,6 +91,7 @@ async function serveViewer(id, offerSdp){
           if(cur !== 'closed' && cur !== 'disconnected' && cur !== 'failed') return; // recovered meanwhile
           try{pc.close();}catch(e){}
           delete pcs[id];
+          delete pcGen[id];
           updateViewers();
         }, wait);
       }
@@ -97,6 +113,7 @@ async function serveViewer(id, offerSdp){
   }catch(e){
     console.error(e);
     delete pcs[id];
+    delete pcGen[id];
     log('serve failed for ' + id + ': ' + e.message);
   }
 }
@@ -133,6 +150,7 @@ function stopAll(){
   if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
   for(const id of Object.keys(pcs)){ try{pcs[id].close();}catch(e){} }
   pcs = {};
+  pcGen = {};
   if(screenStream){ try{screenStream.getTracks().forEach(t=>t.stop());}catch(e){} screenStream = null; }
   preview.srcObject = null;
   $('share').disabled = false;
