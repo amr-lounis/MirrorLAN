@@ -1,27 +1,9 @@
 #!/usr/bin/env python3
-"""Public surface of the core package."""
-from .config import BASE_DIR, Config
-from .certs import (ensure_cert_files, ensure_default_cert,
-                    generate_self_signed, inspect_cert, load_key_scalar,
-                    needs_renewal)
-from .net import local_ips, server_urls
-from .server import ServerError, ServerManager, build_manager
-from .signaling import SignalingStore
+"""MirrorLAN core: HTTPS server + WebRTC signaling + self-signed certs.
+
+Modules are imported directly (e.g. ``from core.server import ServerManager``);
+nothing is re-exported here on purpose.
+"""
 
 __version__ = "2.1.1"
-__all__ = [
-    "BASE_DIR",
-    "Config",
-    "ServerError",
-    "ServerManager",
-    "SignalingStore",
-    "build_manager",
-    "ensure_cert_files",
-    "ensure_default_cert",
-    "inspect_cert",
-    "load_key_scalar",
-    "needs_renewal",
-    "generate_self_signed",
-    "local_ips",
-    "server_urls",
-]
+__all__ = ["__version__"]

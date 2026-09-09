@@ -16,7 +16,6 @@ def _app_dir() -> str:
 
 
 APP_DIR = _app_dir()
-BASE_DIR = APP_DIR  # backward-compatible alias
 
 
 def _resource(name: str) -> str:

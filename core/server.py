@@ -281,13 +281,3 @@ class ServerManager:
             self._https = None
             self._redirect = None
             self.store.clear()
-
-
-def build_manager(port: int | None = None, www_dir: str | None = None) -> ServerManager:
-    """Shortcut: configured manager with optional overrides."""
-    config = Config()
-    if port is not None:
-        config.https_port = port
-    if www_dir is not None:
-        config.www_dir = os.path.abspath(www_dir)
-    return ServerManager(config)

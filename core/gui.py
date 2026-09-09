@@ -14,7 +14,6 @@ CARD = "#171a21"
 FIELD = "#0c0e12"
 FG = "#eef1f6"
 MUTED = "#8b93a7"
-ACCENT = "#4f7cff"
 GREEN = "#22c55e"
 GREEN_DARK = "#16a34a"
 RED = "#ef4444"
@@ -33,7 +32,7 @@ class ServerGui:
         self.root = root
         self.config = config or Config()
         self.manager = ServerManager(self.config)
-        self._rows: list = []
+        self._urls: list = []
         root.title("MirrorLAN")
         try:
             root.iconbitmap(os.path.join(APP_DIR, "app.ico"))
@@ -137,7 +136,7 @@ class ServerGui:
         for widget in self.rows.winfo_children():
             if widget is not self.empty:
                 widget.destroy()
-        self._rows = list(urls)
+        self._urls = list(urls)
         if urls:
             self.empty.pack_forget()
         else:
@@ -183,10 +182,10 @@ class ServerGui:
         self.say("Server stopped.")
 
     def copy_all(self) -> None:
-        if not self._rows:
+        if not self._urls:
             self.say("No addresses yet - start the server first.", MUTED)
             return
-        self._to_clipboard(self._rows)
+        self._to_clipboard(self._urls)
 
     def _to_clipboard(self, lines: list) -> None:
         self.root.clipboard_clear()

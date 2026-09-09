@@ -232,17 +232,6 @@ def _write_pair(cert_path: str, key_path: str, cert_pem: str, key_pem: str) -> N
             pass
 
 
-def ensure_cert_files(cert_path: str, key_path: str, dns_names: List[str],
-                      ip_list: List[str], days: int = 3650,
-                      common_name: str = "MirrorLAN") -> bool:
-    """Write cert/key files if missing. Returns True when files exist."""
-    if os.path.exists(cert_path) and os.path.exists(key_path):
-        return True
-    cert_pem, key_pem = generate_self_signed(dns_names, ip_list, days, common_name)
-    _write_pair(cert_path, key_path, cert_pem, key_pem)
-    return True
-
-
 def ensure_default_cert(config: "Config") -> str:
     """Make sure a valid cert/key pair exists, renewing only when needed.
 
