@@ -29,6 +29,7 @@ const remoteV = $('remote');
 let pc = null, vid = null, pollTimer = null, offerAt = 0;
 let statTimer = null;
 let mediaFlowing = false, mediaTimer = null;
+let locMdns = false, remMdns = false, mediaFails = 0;
 let roomLive = null, roomLiveAt = 0;
 let retryTimer = null, retryCount = 0, autoRetry = false;
 let watchdogTimer = null;
@@ -91,6 +92,7 @@ function logVideoState(tag){
       + ' t=' + (Math.round(remoteV.currentTime * 10) / 10) + 's tracks=[' + ti + ']');
     if(remoteV.videoWidth > 0 && !mediaFlowing){
       mediaFlowing = true;
+      mediaFails = 0;
       cancelMediaWatchdog();
       log('first frame ' + remoteV.videoWidth + 'x' + remoteV.videoHeight + ' - link is flowing');
     }
@@ -124,17 +126,28 @@ function cancelMediaWatchdog(){ try{ if(mediaTimer){ clearTimeout(mediaTimer); m
 function armMediaWatchdog(myPc, myVid){
   cancelMediaWatchdog();
   mediaFlowing = false;
+  // Backoff so a permanently blocked device retries at 12s,24s,48s,60s…
+  // instead of spamming the log every 12s forever.
+  const wait = Math.min(60000, 12000 * Math.pow(2, Math.min(mediaFails, 2)));
   mediaTimer = setTimeout(() => {
     mediaTimer = null;
     if(!autoRetry || pc !== myPc || mediaFlowing) return;
     if(myPc.connectionState === 'connected') return;
-    log('no media for 12s (conn=' + myPc.connectionState + '/ice=' + myPc.iceConnectionState + ') - restarting watch');
+    mediaFails++;
+    log('no media for ' + Math.round(wait / 1000) + 's (conn=' + myPc.connectionState + '/ice=' + myPc.iceConnectionState + ') - restarting watch');
     logLocalCands();
     logRemoteCands();
     logVideoState('stuck');
-    showToast('no video path — retrying (check VPN/firewall on this device)…');
+    if(locMdns && remMdns){
+      showToast('no video path (mDNS blocked?) — allow UDP 5353 / disable VPN…');
+      log('HINT: both ends expose only .local candidates - the browser hides LAN IPs; '
+        + 'allow multicast DNS (UDP 5353) both ways, disable VPN/firewall, or switch off '
+        + '"hide local IPs with mDNS" in chrome/edge://flags for a test');
+    }else{
+      showToast('no video path — retrying (check VPN/firewall on this device)…');
+    }
     watch(true); // same id: fresh offer + fresh pc
-  }, 12000);
+  }, wait);
 }
 ['loadedmetadata','playing','waiting','stalled','pause','emptied','error','suspend'].forEach(ev => {
   try{ remoteV.addEventListener(ev, () => logVideoState(ev)); }catch(e){}
@@ -160,6 +173,7 @@ function watchMediaStats(myPc, myVid){
       if(inbound){
         if((inbound.bytesReceived || 0) > 0 && !mediaFlowing){
           mediaFlowing = true;
+          mediaFails = 0;
           cancelMediaWatchdog();
           log('first media bytes received - link is flowing');
         }
@@ -170,8 +184,13 @@ function watchMediaStats(myPc, myVid){
           + ' jitter=' + (inbound.jitter !== undefined ? Math.round(inbound.jitter * 1000) : '?') + 'ms'
           + ' conn=' + myPc.connectionState + '/' + myPc.iceConnectionState);
         if(runs >= 2 && (inbound.bytesReceived || 0) === 0){
-          showToast('connected but no video data — check same Wi-Fi / AP isolation / VPN');
-          log('WARNING: 0 bytes received - UDP media blocked? (AP isolation/firewall/VPN)');
+          if(locMdns && remMdns){
+            showToast('no video path (mDNS blocked?) — allow UDP 5353 / disable VPN');
+            log('WARNING: mDNS-only candidates, 0 bytes - multicast DNS blocked?');
+          }else{
+            showToast('connected but no video data — check same Wi-Fi / AP isolation / VPN');
+            log('WARNING: 0 bytes received - UDP media blocked? (AP isolation/firewall/VPN)');
+          }
           logRemoteCands();
         }
       }else{
@@ -271,7 +290,7 @@ async function watch(keepVid){
   autoRetry = true;
   paintViewerBtns();
   setStat('connecting…');
-  if(!keepVid || !vid){ vid = makeId(); retryCount = 0; }
+  if(!keepVid || !vid){ vid = makeId(); retryCount = 0; mediaFails = 0; }
   log('connecting as ' + vid + ' ...');
   try{
     pc = new RTCPeerConnection({ iceServers: [] }); // LAN only
@@ -326,6 +345,7 @@ async function watch(keepVid){
     });
     const mySdp = pc.localDescription.sdp;
     const myCands = countCands(mySdp);
+    locMdns = mdnsOnly(mySdp);
     logSdpSummary(mySdp, 'offer');
     await fetch('api/offer', { method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ id: vid, sdp: mySdp, room: ROOM, cands: myCands }) });
@@ -346,6 +366,8 @@ async function watch(keepVid){
             log('answer received (' + remCands + ' remote candidates)');
             if(remCands === 0) showToast('sharer has no network path — check its network/VPN');
             logSdpSummary(data.sdp, 'answer');
+            remMdns = mdnsOnly(data.sdp);
+            if(locMdns && remMdns) log('both sides mDNS-only (.local) - needs working multicast DNS (UDP 5353)');
             await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
             log('connected - receiving screen (conn=' + pc.connectionState + '/ice=' + pc.iceConnectionState + ')');
             logVideoState('answer');

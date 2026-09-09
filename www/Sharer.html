@@ -144,6 +144,8 @@ async function serveViewer(id, offerSdp){
     await fetch('api/answer', { method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ id, sdp: ansSdp, room: ROOM, cands: ansCands }) });
     log('serving viewer ' + id + ' (' + ansCands + ' local candidates)');
+    if(mdnsOnly(offerSdp) && mdnsOnly(ansSdp))
+      log('viewer ' + id + ' mDNS-only both ends - needs UDP 5353 multicast');
   }catch(e){
     console.error(e);
     delete pcs[id];

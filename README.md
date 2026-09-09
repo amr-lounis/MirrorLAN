@@ -207,6 +207,7 @@ LAN-trust model — anyone on your local network with the URL can create and wat
    - Count goes up but still black → the video path is blocked: disable **AP/client isolation** (or "guest mode") on the router, or try another phone/hotspot.
    - Count stays 0 → the phone never reached the server: recheck steps 1–3 and the IP address.
    - Log stops after `connected - receiving screen` with no `connection:` lines at all → the device gathered zero ICE candidates (UDP blocked at OS level: firewall, antivirus, VPN, or proxy — hits every browser equally). The viewer log says `offer sent (0 local candidates)` in that case; open `https://<LAN-IP>/api/diag` from any device to confirm.
+   - Log shows `conn=new/ice=new` for 12 s+, then `no media … restarting`, and every candidate ends with `.local` → multicast DNS is blocked: the browsers hide LAN IPs (mDNS), so each side must resolve the other's `*.local` over UDP 5353. Allow **UDP 5353 both ways** in Windows Firewall/antivirus on sharer *and* viewer, set the network profile to **Private**, disable **VPN**, keep both devices on the same AP/band (some routers filter multicast between clients). Quick confirmation test: on the failing PC open `edge://flags` (or `chrome://flags`), switch off **"Anonymize local IPs exposed by WebRTC"**, relaunch — candidates become literal `192.168.x.x` and video should appear immediately.
 6. **No sound on the phone** — use the volume slider at the bottom of the viewer page (a no-sound badge means the shared source itself has no audio).
 
 ## License

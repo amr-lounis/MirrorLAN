@@ -39,11 +39,21 @@ const ROOM = ((new URLSearchParams(location.search).get('room') || '').toLowerCa
 const ROOM_RE = /^[a-z0-9\-_]{1,32}$/;
 function cleanRoom(v){ return (v || '').toLowerCase().trim(); }
 
+// ICE candidate lines of an SDP blob.
+function candLines(sdp){
+  try{ return String(sdp || '').split('\n').filter(l => l.indexOf('a=candidate:') === 0); }
+  catch(e){ return []; }
+}
 // Number of ICE candidates in an SDP blob. Zero means this device cannot
 // gather any network path (UDP blocked?) — the link can never form.
-function countCands(sdp){
-  try{ return String(sdp || '').split('\n').filter(l => l.indexOf('a=candidate:') === 0).length; }
-  catch(e){ return 0; }
+function countCands(sdp){ return candLines(sdp).length; }
+// True when every candidate is an mDNS hostname (*.local): the browser hides
+// literal LAN IPs, so the link needs working multicast DNS (UDP 5353) on the
+// LAN. If EITHER side fails to resolve .local, ICE never leaves "new" and
+// the screen stays black (signaling still works — it goes over TCP/HTTPS).
+function mdnsOnly(sdp){
+  const c = candLines(sdp);
+  return c.length > 0 && c.every(l => l.indexOf('.local') >= 0);
 }
 
 // Small status pill (#toast). No-op on pages without one.
