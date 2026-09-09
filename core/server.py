@@ -81,7 +81,7 @@ def create_redirect_handler(suffix: str) -> type:
 
 def create_api_handler(store: SignalingStore, www_dir: str) -> type:
     """Static files plus /api/offers, /api/claim, /api/answer, /api/offer,
-    /api/leave, /api/rooms, /api/sharer/heartbeat, /api/sharer/leave."""
+    /api/leave, /api/rooms, /api/diag, /api/sharer/heartbeat, /api/sharer/leave."""
 
     class ApiHandler(_CorsMixin, SimpleHTTPRequestHandler):
         # HTTP/1.1 keep-alive: browsers reuse one TLS connection for the
@@ -137,6 +137,8 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
             query = parse_qs(path.query)
             if path.path == "/api/rooms":
                 return self._json({"rooms": store.list_rooms()})
+            if path.path == "/api/diag":
+                return self._json({"events": store.recent_events()})
             if path.path == "/api/offers":
                 room = (query.get("room", [""])[0] or "")
                 try:
@@ -152,7 +154,7 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
                     return self._json({"error": str(exc)}, 400)
                 if sdp:
                     return self._json({"sdp": sdp})
-                return self._json({"error": "not-ready"}, 404)
+                return self._json({"waiting": True})
             return super().do_GET()
 
         def do_POST(self):
@@ -165,8 +167,12 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
                 try:
                     if path.path == "/api/offer":
                         store.put_offer(data.get("id"), data.get("sdp"), data.get("room", ""))
+                        store.note("offer", data.get("room", ""), data.get("id"),
+                                   self.client_address[0], data.get("cands"))
                     elif path.path == "/api/answer":
                         store.put_answer(data.get("id"), data.get("sdp"), data.get("room", ""))
+                        store.note("answer", data.get("room", ""), data.get("id"),
+                                   self.client_address[0], data.get("cands"))
                     elif path.path == "/api/sharer/heartbeat":
                         store.heartbeat_sharer(data.get("room", ""))
                     elif path.path == "/api/sharer/leave":
@@ -182,11 +188,13 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
                         else:
                             claimed = store.claim_known(room, known)
                         if claimed is None:
-                            return self._json({"error": "empty", "gone": gone}, 404)
+                            return self._json({"waiting": True, "gone": gone})
                         vid, sdp = claimed
                         return self._json({"id": vid, "sdp": sdp, "gone": gone})
                     else:
                         store.remove(data.get("id"), data.get("room", ""))
+                        store.note("leave", data.get("room", ""), data.get("id"),
+                                   self.client_address[0])
                 except ValueError as exc:
                     return self._json({"error": str(exc)}, 400)
                 return self._json({"ok": True})

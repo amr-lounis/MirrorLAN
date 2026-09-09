@@ -81,7 +81,7 @@ async function pollOffers(){
     let o = null;
     try{ o = await r.json(); }catch(e){}
     if(o) dropGone(o.gone); // departures apply even when full (queue untouched)
-    if(r.ok && o && o.id && o.sdp){
+    if(r.ok && o && !o.waiting && o.id && o.sdp){
       if(pcs[o.id]){
         // Same viewer re-offered (reconnect/retry): its old peer is
         // definitionally gone — it closed it before re-offering — so
@@ -132,9 +132,11 @@ async function serveViewer(id, offerSdp){
       pc.addEventListener('icegatheringstatechange', f);
       setTimeout(res, 3000);
     });
+    const ansSdp = pc.localDescription.sdp;
+    const ansCands = countCands(ansSdp);
     await fetch('api/answer', { method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ id, sdp: pc.localDescription.sdp, room: ROOM }) });
-    log('serving viewer ' + id);
+      body: JSON.stringify({ id, sdp: ansSdp, room: ROOM, cands: ansCands }) });
+    log('serving viewer ' + id + ' (' + ansCands + ' local candidates)');
   }catch(e){
     console.error(e);
     delete pcs[id];

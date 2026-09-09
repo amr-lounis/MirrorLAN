@@ -10,6 +10,13 @@ const ROOM = ((new URLSearchParams(location.search).get('room') || '').toLowerCa
 const ROOM_RE = /^[a-z0-9\-_]{1,32}$/;
 function cleanRoom(v){ return (v || '').toLowerCase().trim(); }
 
+// Number of ICE candidates in an SDP blob. Zero means this device cannot
+// gather any network path (UDP blocked?) — the link can never form.
+function countCands(sdp){
+  try{ return String(sdp || '').split('\n').filter(l => l.indexOf('a=candidate:') === 0).length; }
+  catch(e){ return 0; }
+}
+
 // Small status pill (#toast). No-op on pages without one.
 function showToast(t){ const el = document.getElementById('toast'); if(!el) return; el.textContent = t; el.style.display = 'block'; }
 function hideToast(){ const el = document.getElementById('toast'); if(el) el.style.display = 'none'; }

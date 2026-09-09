@@ -10,7 +10,8 @@ from __future__ import annotations
 import re
 import threading
 import time
-from typing import Dict, List, Tuple
+from collections import deque
+from typing import Deque, Dict, List, Tuple
 
 _ROOM_OK = re.compile(r"[a-z0-9\-_]*")
 
@@ -52,6 +53,7 @@ class SignalingStore:
         self._seen: Dict[Tuple[str, str], float] = {}  # (room, id) -> last live touch
         self._departed: Dict[Tuple[str, str], float] = {}  # (room, id) -> left at
         self._sharers: Dict[str, float] = {}  # room -> last heartbeat epoch
+        self._events: Deque[Tuple[float, str, str, str, str, object]] = deque(maxlen=120)
 
     def _room(self, room: object) -> str:
         name = str(room or "")
@@ -233,6 +235,26 @@ class SignalingStore:
             return [{"room": room, "live": room in self._sharers,
                      "pending": pending.get(room, 0)} for room in sorted(names)]
 
+    def note(self, kind: str, room: object = "", vid: object = "",
+             ip: object = "", cands: object = None) -> None:
+        """Append a signaling event for /api/diag (open it from any device
+        to see who offered/answered/left, with candidate counts)."""
+        try:
+            entry = (time.time(), str(kind),
+                     str(room or ""), str(vid or ""), str(ip or ""),
+                     cands if isinstance(cands, int) else None)
+        except Exception:
+            return
+        with self._lock:
+            self._events.append(entry)
+
+    def recent_events(self) -> List[dict]:
+        """Last signaling events, oldest first. Lock-protected snapshot."""
+        with self._lock:
+            return [{"at": ts, "kind": kind, "room": room, "id": vid,
+                     "ip": ip, "cands": cands}
+                    for (ts, kind, room, vid, ip, cands) in self._events]
+
     def clear(self) -> None:
         with self._lock:
             self._offers.clear()
@@ -241,3 +263,4 @@ class SignalingStore:
             self._seen.clear()
             self._departed.clear()
             self._sharers.clear()
+            self._events.clear()

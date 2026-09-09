@@ -26,7 +26,8 @@ button.ghost{background:rgba(255,255,255,.15);color:#cfd6e4;cursor:default}
 <script src="shared.js"></script>
 <script>
 const remoteV = $('remote');
-let pc = null, vid = null, pollTimer = null, offerAt = 0, waitShown = false;
+let pc = null, vid = null, pollTimer = null, offerAt = 0;
+let roomLive = null, roomLiveAt = 0;
 let retryTimer = null, retryCount = 0, autoRetry = false;
 let watchdogTimer = null;
 const WATCHDOG_MS = 30000; // waiting for the first answer with no recovery =
@@ -71,6 +72,22 @@ function scheduleRetry(){
 
 function makeId(){ return 'v-' + Math.random().toString(36).slice(2,8); }
 log('room: ' + (ROOM || '(default)'));
+
+async function refreshRoomLive(){
+  // Is our room actually live on the server? Cached 10s. null = unknown
+  // (fetch failed). Lets the waiting message name the real problem:
+  // wrong room name vs. full room vs. sharer gone.
+  if(Date.now() - roomLiveAt < 10000) return roomLive;
+  try{
+    const r = await fetch('api/rooms');
+    if(r.ok){
+      const data = await r.json();
+      roomLive = (data.rooms || []).some(x => x.live && (x.room || '') === ROOM);
+      roomLiveAt = Date.now();
+    }
+  }catch(e){}
+  return roomLive;
+}
 
 function setStat(t){
   // Visible link state: on a failing device this names the culprit
@@ -172,28 +189,36 @@ async function watch(keepVid){
       pc.addEventListener('icegatheringstatechange', f);
       setTimeout(res, 3000);
     });
+    const mySdp = pc.localDescription.sdp;
+    const myCands = countCands(mySdp);
     await fetch('api/offer', { method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ id: vid, sdp: pc.localDescription.sdp, room: ROOM }) });
-    log('offer sent, waiting for server answer...');
+      body: JSON.stringify({ id: vid, sdp: mySdp, room: ROOM, cands: myCands }) });
+    log('offer sent (' + myCands + ' local candidates), waiting for server answer...');
+    if(myCands === 0) showToast('no network path — UDP may be blocked on this device');
     offerAt = Date.now();
-    waitShown = false;
+    roomLive = null; roomLiveAt = 0;
     const checkAnswer = async () => {
-      if(!waitShown && Date.now() - offerAt > 12000){
-        waitShown = true;
-        showToast('Waiting for a free slot — room may be full…');
-      }
       try{
         const r = await fetch('api/answer?id=' + encodeURIComponent(vid) + '&room=' + encodeURIComponent(ROOM));
-        if(!r.ok) return;
-        const data = await r.json();
-        if(data.sdp){
-          clearInterval(pollTimer); pollTimer = null;
-          cancelWatchdog();
-          hideToast();
-          await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
-          log('connected - receiving screen');
+        if(r.ok){
+          const data = await r.json();
+          if(data.sdp){
+            clearInterval(pollTimer); pollTimer = null;
+            cancelWatchdog();
+            hideToast();
+            await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
+            log('connected - receiving screen');
+            return;
+          }
         }
       }catch(e){}
+      // Still waiting: name the cause instead of a bare spinner.
+      const age = Date.now() - offerAt;
+      if(age > 5000){
+        const live = await refreshRoomLive();
+        if(live === false) showToast('room "' + (ROOM || 'default') + '" is not live — check the name');
+        else if(live === true && age > 12000) showToast('Waiting for a free slot — room may be full…');
+      }
     };
     pollTimer = setInterval(checkAnswer, 1000);
     checkAnswer(); // first check at once: answers posted before our offer save ~1s

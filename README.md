@@ -169,11 +169,12 @@ CLI flags: `--serve [PORT]`, `--dir PATH`, `--https-port PORT`, `--http-port POR
 ## API
 
 - `GET /api/rooms` — list active rooms
+- `GET /api/diag` — last signaling events (offer/answer/leave with client IP + candidate counts) for debugging
 - `GET /api/offers?room=` — list viewer offers in a room
-- `GET /api/answer?id=&room=` — fetch an answer (404 `not-ready` if missing)
-- `POST /api/offer` `{id, sdp, room}` — publish a viewer offer
-- `POST /api/answer` `{id, sdp, room}` — publish an answer
-- `POST /api/claim` `{room, known, accept}` — sharer claims the next offer (404 `empty`); both answers carry `gone: [...]` — served viewer ids that pressed Leave (matched against the sharer's `known` id list), so the sharer drops them within ~1 s instead of waiting ~10 s for ICE timeout. `accept: false` serves only re-offers from known ids without touching the waiting queue (full rooms); a re-offer from a served viewer always replaces its stale link, so a returning viewer can never strand on black
+- `GET /api/answer?id=&room=` — fetch an answer (`200 {"waiting": true}` while none is posted yet)
+- `POST /api/offer` `{id, sdp, room}` — publish a viewer offer (browsers also send `cands`: their ICE candidate count)
+- `POST /api/answer` `{id, sdp, room}` — publish an answer (sharer also sends `cands`)
+- `POST /api/claim` `{room, known, accept}` — sharer claims the next offer (`200 {"waiting": true, "gone": [...]}` when the queue is empty); both answers carry `gone: [...]` — served viewer ids that pressed Leave (matched against the sharer's `known` id list), so the sharer drops them within ~1 s instead of waiting ~10 s for ICE timeout. `accept: false` serves only re-offers from known ids without touching the waiting queue (full rooms); a re-offer from a served viewer always replaces its stale link, so a returning viewer can never strand on black
 - `POST /api/leave` `{id, room}` — remove an offer/answer and notify the sharer
 - `POST /api/sharer/heartbeat` `{room}` / `POST /api/sharer/leave` `{room}`
 
@@ -197,13 +198,15 @@ LAN-trust model — anyone on your local network with the URL can create and wat
 
 ### Phone shows a black screen (PC works)
 
-1. **Same Wi-Fi** — the phone must be on the same Wi-Fi network as the PC, not mobile data.
-2. **Accept the certificate on the phone** — open `https://<LAN-IP>/` in the phone browser first and proceed past the warning; otherwise nothing loads.
-3. **Use Chrome (Android) or Safari (iPhone)**, updated — in-app browsers and old versions may lack WebRTC.
-4. **Check the sharer page viewer count** after pressing Watch on the phone:
+1. **Same room, same spelling** — the viewer URL must carry the exact room name (`?room=...`). Easiest: open the rooms list on the device and press **Watch** there instead of typing the URL. Since this version the page itself tells you: `room "X" is not live — check the name` means exactly this.
+2. **Same Wi-Fi** — the phone must be on the same Wi-Fi network as the PC, not mobile data.
+3. **Accept the certificate on the phone** — open `https://<LAN-IP>/` in the phone browser first and proceed past the warning; otherwise nothing loads.
+4. **Use Chrome (Android) or Safari (iPhone)**, updated — in-app browsers and old versions may lack WebRTC.
+5. **Check the sharer page viewer count** after pressing Watch on the phone:
    - Count goes up but still black → the video path is blocked: disable **AP/client isolation** (or "guest mode") on the router, or try another phone/hotspot.
-   - Count stays 0 → the phone never reached the server: recheck steps 1–2 and the IP address.
-5. **No sound on the phone** — phones often force muted autoplay; tap the video once to restore sound.
+   - Count stays 0 → the phone never reached the server: recheck steps 1–3 and the IP address.
+   - Log stops after `connected - receiving screen` with no `connection:` lines at all → the device gathered zero ICE candidates (UDP blocked at OS level: firewall, antivirus, VPN, or proxy — hits every browser equally). The viewer log says `offer sent (0 local candidates)` in that case; open `https://<LAN-IP>/api/diag` from any device to confirm.
+6. **No sound on the phone** — use the volume slider at the bottom of the viewer page (a no-sound badge means the shared source itself has no audio).
 
 ## License
 
