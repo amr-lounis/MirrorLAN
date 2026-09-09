@@ -28,6 +28,7 @@ button.ghost{background:rgba(255,255,255,.15);color:#cfd6e4;cursor:default}
 const remoteV = $('remote');
 let pc = null, vid = null, pollTimer = null, offerAt = 0;
 let statTimer = null;
+let mediaFlowing = false, mediaTimer = null;
 let roomLive = null, roomLiveAt = 0;
 let retryTimer = null, retryCount = 0, autoRetry = false;
 let watchdogTimer = null;
@@ -88,7 +89,52 @@ function logVideoState(tag){
     log('video[' + tag + '] rs=' + remoteV.readyState + ' paused=' + remoteV.paused
       + ' muted=' + remoteV.muted + ' ' + remoteV.videoWidth + 'x' + remoteV.videoHeight
       + ' t=' + (Math.round(remoteV.currentTime * 10) / 10) + 's tracks=[' + ti + ']');
+    if(remoteV.videoWidth > 0 && !mediaFlowing){
+      mediaFlowing = true;
+      cancelMediaWatchdog();
+      log('first frame ' + remoteV.videoWidth + 'x' + remoteV.videoHeight + ' - link is flowing');
+    }
   }catch(e){}
+}
+// One-line SDP summary: catches rejected m-lines (port 0) or missing
+// BUNDLE without dumping the whole (huge) SDP into the log.
+function logSdpSummary(sdp, tag){
+  try{
+    const lines = String(sdp || '').split('\n');
+    const ms = lines.filter(l => l.indexOf('m=') === 0).map(l => l.slice(0, 40));
+    const grp = lines.filter(l => l.indexOf('a=group:') === 0).map(l => l.slice(0, 60));
+    const setup = lines.filter(l => l.indexOf('a=setup:') === 0).map(l => l.slice(0, 20));
+    log(tag + ' m=[' + ms.join(' | ') + '] ' + grp.join(',') + ' ' + setup.join(','));
+  }catch(e){}
+}
+function logLocalCands(){
+  try{
+    const sdp = (pc && pc.localDescription && pc.localDescription.sdp) || '';
+    const cands = sdp.split('\n').filter(l => l.indexOf('a=candidate:') === 0);
+    log('local candidates (' + cands.length + '):');
+    cands.slice(0, 8).forEach(l => log('  ' + l.slice(0, 100)));
+  }catch(e){}
+}
+// A viewer stuck at conn=new/ice=new with no RTP never fires
+// onconnectionstatechange, so scheduleRetry() can never save it (and the
+// 30s answer-watchdog was already cancelled on answer). Without this the
+// page sits on black forever. Re-offer with the same id: the server
+// replaces the stale link, so restarting can never strand it.
+function cancelMediaWatchdog(){ try{ if(mediaTimer){ clearTimeout(mediaTimer); mediaTimer = null; } }catch(e){} }
+function armMediaWatchdog(myPc, myVid){
+  cancelMediaWatchdog();
+  mediaFlowing = false;
+  mediaTimer = setTimeout(() => {
+    mediaTimer = null;
+    if(!autoRetry || pc !== myPc || mediaFlowing) return;
+    if(myPc.connectionState === 'connected') return;
+    log('no media for 12s (conn=' + myPc.connectionState + '/ice=' + myPc.iceConnectionState + ') - restarting watch');
+    logLocalCands();
+    logRemoteCands();
+    logVideoState('stuck');
+    showToast('no video path — retrying (check VPN/firewall on this device)…');
+    watch(true); // same id: fresh offer + fresh pc
+  }, 12000);
 }
 ['loadedmetadata','playing','waiting','stalled','pause','emptied','error','suspend'].forEach(ev => {
   try{ remoteV.addEventListener(ev, () => logVideoState(ev)); }catch(e){}
@@ -112,6 +158,11 @@ function watchMediaStats(myPc, myVid){
         if(r.type === 'candidate-pair' && (r.selected || r.state === 'succeeded')) pair = r;
       });
       if(inbound){
+        if((inbound.bytesReceived || 0) > 0 && !mediaFlowing){
+          mediaFlowing = true;
+          cancelMediaWatchdog();
+          log('first media bytes received - link is flowing');
+        }
         log('stats[' + myVid + '] bytes=' + (inbound.bytesReceived || 0)
           + ' frames=' + (inbound.framesDecoded || 0)
           + ' dropped=' + (inbound.framesDropped || 0)
@@ -275,6 +326,7 @@ async function watch(keepVid){
     });
     const mySdp = pc.localDescription.sdp;
     const myCands = countCands(mySdp);
+    logSdpSummary(mySdp, 'offer');
     await fetch('api/offer', { method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ id: vid, sdp: mySdp, room: ROOM, cands: myCands }) });
     log('offer sent (' + myCands + ' local candidates), waiting for server answer...');
@@ -293,10 +345,12 @@ async function watch(keepVid){
             const remCands = countCands(data.sdp);
             log('answer received (' + remCands + ' remote candidates)');
             if(remCands === 0) showToast('sharer has no network path — check its network/VPN');
+            logSdpSummary(data.sdp, 'answer');
             await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
             log('connected - receiving screen (conn=' + pc.connectionState + '/ice=' + pc.iceConnectionState + ')');
             logVideoState('answer');
             watchMediaStats(pc, vid);
+            armMediaWatchdog(pc, vid);
             return;
           }
         }
@@ -323,6 +377,7 @@ function cleanupConn(){
   if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
   cancelWatchdog();
   cancelStats();
+  cancelMediaWatchdog();
   hideToast();
   setStat(null);
   if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM}), keepalive: true }).catch(()=>{}); }catch(e){} }
