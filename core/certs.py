@@ -220,7 +220,8 @@ def _write_pair(cert_path: str, key_path: str, cert_pem: str, key_pem: str) -> N
     unchanged = False
     if os.path.exists(key_path):
         try:
-            unchanged = open(key_path).read() == key_pem
+            with open(key_path) as handle:
+                unchanged = handle.read() == key_pem
         except Exception:
             unchanged = False
     if not unchanged:

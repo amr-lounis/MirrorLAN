@@ -99,6 +99,22 @@ def create_api_handler(store: SignalingStore, www_dir: str) -> type:
         def do_OPTIONS(self):
             self._serve_preflight()
 
+        def end_headers(self):
+            # Pages/scripts must revalidate on every load: a stale cached
+            # shared.js against new Sharer/Viewer breaks with "X is not
+            # defined". "no-cache" still allows 304 (Last-Modified) so LAN
+            # traffic stays light. API polls must never cache at all.
+            try:
+                resource = urlparse(getattr(self, "path", "")).path.lower()
+                if (resource.endswith(".html") or resource.endswith(".js")
+                        or resource.endswith(".css") or resource.endswith("/")):
+                    self.send_header("Cache-Control", "no-cache")
+                elif resource.startswith("/api/"):
+                    self.send_header("Cache-Control", "no-store")
+            except Exception:
+                pass
+            super().end_headers()
+
         def list_directory(self, path):
             # Never expose directory listings (e.g. when serving --dir).
             self.send_error(404, "Not found")
