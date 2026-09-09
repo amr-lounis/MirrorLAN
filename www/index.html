@@ -30,9 +30,10 @@ input:focus{outline:none;border-color:#4f7cff}
 <div class="card">
 <h1>Rooms</h1>
 <p class="sub">Watch a live screen or start a new room.</p>
+<div class="err" id="localonly" style="display:none;color:#f5c542">Sharing works only from http://localhost on the sharing PC — this device can only watch.</div>
 <h2>LIVE</h2>
 <div id="list"><div class="empty" id="empty">No live rooms.</div></div>
-<div class="err" id="err">Cannot reach server - open this page via https://SERVER/ instead of file://</div>
+<div class="err" id="err">Cannot reach server - open this page via http://SERVER:PORT/ instead of file://</div>
 <h2>NEW ROOM</h2>
 <div class="newrow">
 <input id="name" placeholder="room-name" maxlength="32" autocapitalize="off" autocomplete="off" spellcheck="false">
@@ -82,6 +83,10 @@ $('create').onclick = () => {
   location.href = 'Sharer.html?room=' + encodeURIComponent(v) + '&max=' + n;
 };
 $('name').addEventListener('keydown', e => { if(e.key === 'Enter') $('create').click(); });
+try{
+  const h = location.hostname;
+  if(h !== 'localhost' && h !== '127.0.0.1' && h !== '[::1]') $('localonly').style.display = 'block';
+}catch(e){}
 refresh();
 setInterval(refresh, 3000);
 </script>

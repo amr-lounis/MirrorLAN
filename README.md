@@ -1,24 +1,25 @@
 # MirrorLAN
 
-Tiny HTTPS server for LAN screen sharing, with a Tkinter control panel and a minimal WebRTC signaling API.
+Tiny HTTP server for LAN screen sharing, with a Tkinter control panel and a minimal WebRTC signaling API.
 
-It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over TLS, redirects plain HTTP to HTTPS, and exposes a few `/api/*` endpoints so sharers and viewers can exchange offers/answers on the local network. Self-signed ECDSA certificates are generated with the standard library only — no OpenSSL needed.
+It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over plain HTTP and exposes a few `/api/*` endpoints so sharers and viewers can exchange offers/answers on the local network. No TLS, no certificates, no setup.
+
+> **Important browser limitation:** screen capture works **only from `http://localhost` on the sharing PC** — browsers disable it on `http://LAN-IP` (secure-context rule). Other devices on the LAN can **watch**, but only the PC running the server can **share**. The rooms page tells LAN visitors exactly that.
 
 ![MirrorLAN running with LAN addresses](readme/gui-running.JPG)
 
 ## Features
 
-- HTTPS static file server + HTTP → HTTPS redirect
+- Plain-HTTP static file server (no certificates, no warnings)
 - WebRTC signaling API (offers, answers, rooms, sharer heartbeat)
 - Built-in TURN/UDP relay (stdlib only) — automatic fallback when direct browser-to-browser media is blocked (mDNS filtered, AP isolation, VPN); pages use it with zero setup
 - Tkinter GUI: pick a port, Start/Stop, copy LAN addresses
-- Self-signed certs (stdlib only, SANs for LAN IPs)
 - Single-file Windows build via PyInstaller (`build.bat`)
 
 ## How it works
 
-1. The **sharer** opens `https://<server>/`, types a room name, and presses **Share** — the page captures the screen/window and sends a heartbeat so the room stays listed as live.
-2. A **viewer** on another device opens the same address, sees the live room, and presses **Watch** — the page posts a WebRTC offer to `/api/offer`.
+1. The **sharer** opens `http://localhost:8080/` **on the sharing PC itself**, types a room name, and presses **Share** — the page captures the screen/window and sends a heartbeat so the room stays listed as live.
+2. A **viewer** on another device opens `http://<LAN-IP>:8080/`, sees the live room, and presses **Watch** — the page posts a WebRTC offer to `/api/offer`.
 3. The sharer claims the offer (`/api/claim`), replies with an answer (`/api/answer`), and the viewer picks it up.
 4. Video/audio then flows **directly browser-to-browser** (WebRTC peer connection) — the server only relays the signaling, it never sees the media. When the direct path cannot form (see [mDNS / black screen](#phone-shows-a-black-screen-pc-works)), both pages automatically fall back to the built-in TURN relay on UDP `3478`: relay candidates carry the server's literal IP, so no multicast DNS is needed. Relayed media stays DTLS-SRTP encrypted end-to-end — the server forwards opaque packets it cannot decrypt.
 
@@ -37,7 +38,7 @@ Open the app, pick a port, and press **Start Server**. Copy one of the LAN addre
 
 ### 2. Create a room
 
-Open the address in a browser, type a room name, set **Max viewers** (1–99, default 1), and press **Share**.
+On the sharing PC, open `http://localhost:8080/` in a browser, type a room name, set **Max viewers** (1–99, default 1), and press **Share**.
 
 ![New room](readme/rooms-new.JPG)
 
@@ -74,7 +75,7 @@ Behavior:
 - **Cursor**: the mouse pointer is part of the capture, as rendered by the OS.
 - **Viewer count**: the badge on the sharer page shows live WebRTC connections.
 - **Stop**: red stop button, the browser's own "Stop sharing" control, or just close the tab — the room is freed immediately (closing the tab also notifies the server, otherwise the room drops after ~15 s of missed heartbeats).
-- **Offline-friendly**: peer connections use no STUN/TURN (`iceServers: []`) — everything stays on the LAN and works without internet.
+- **Offline-friendly**: everything stays on the LAN and works without internet — direct peer paths first, built-in TURN relay as automatic fallback.
 
 ### Extend display to any browser device
 
@@ -111,24 +112,23 @@ Behavior:
 # Launch the GUI (port, Start/Stop, copy addresses)
 python main.py
 
-# Headless server on default port 443
+# Headless server on default port 8080
 python main.py --serve
 
 # Headless server on a custom port
-python main.py --serve 8443
+python main.py --serve 8081
 
 # Serve another folder
-python main.py --serve 8443 --dir ./site
+python main.py --serve 8081 --dir ./site
 ```
 
-First run creates `cert.pem` / `key.pem` next to `main.py` (or next to the `.exe` when frozen). Headless mode prints the LAN addresses to the console.
+Headless mode prints the LAN addresses to the console.
 
-Then on any device on the same network, open `https://<LAN-IP>/` (or `https://<LAN-IP>:8443/` for a custom port) in a browser. The browser will warn about the self-signed certificate — accept it once per device (or install `cert.pem` as trusted).
+Share from `http://localhost:8080/` on the sharing PC. Other devices on the same network open `http://<LAN-IP>:8080/` (or your custom port) and press **Watch** — watching works from anywhere on the LAN, sharing only from localhost.
 
 GUI buttons:
 
 - **Copy** / **Copy All** — copy one or all LAN addresses to the clipboard
-- **Make Cert** — ensure a valid `cert.pem` / `key.pem`: creates them if missing, otherwise renews automatically when expired, expiring (< 30 days), or when your LAN IPs changed. Renewal keeps the same private key; foreign certificates (different name) are never touched
 
 ## Build the .exe (Windows)
 
@@ -136,17 +136,16 @@ GUI buttons:
 build.bat
 ```
 
-Output: `dist\MirrorLAN.exe` (one file, GUI, no console). Double-click it — the GUI starts and certs are created automatically.
+Output: `dist\MirrorLAN.exe` (one file, GUI, no console). Double-click it — the GUI starts, no setup needed.
 
 ## Project layout
 
 ```text
 main.py            entry point (GUI or --serve)
 core/config.py     all settings in one Config dataclass
-core/certs.py      self-signed ECDSA certificates + ensure_default_cert (stdlib only)
 core/net.py        local IPs and public URLs
 core/signaling.py  thread-safe viewer offer/answer store
-core/server.py     https server + http redirect + ServerManager (shared CORS mixin)
+core/server.py     http server + ServerManager (shared CORS mixin)
 core/turn.py       minimal TURN/UDP relay (RFC 5766 subset, stdlib only)
 core/gui.py        Tkinter control panel
 www/shared.css     stage theme shared by Sharer/Viewer
@@ -160,15 +159,13 @@ Defaults live in `core/config.py`:
 
 | Setting | Default | Notes |
 |---|---|---|
-| `https_port` | `443` | needs admin rights on Windows |
-| `http_port` | `80` | best-effort redirect listener |
+| `port` | `8080` | plain-HTTP listener (ports < 1024 need admin on Windows) |
 | `turn_port` | `3478` | TURN/UDP relay listener (`0` = disabled) |
 | `turn_realm` | `MirrorLAN` | TURN auth realm |
 | `www_dir` | `www/` | served folder |
-| `cert_file` / `key_file` | `cert.pem` / `key.pem` | auto-generated |
 | `sharer_timeout` | `15` s | room dropped after no heartbeat |
 
-CLI flags: `--serve [PORT]`, `--dir PATH`, `--https-port PORT`, `--http-port PORT`, `--turn-port PORT`.
+CLI flags: `--serve [PORT]`, `--dir PATH`, `--port PORT`, `--turn-port PORT`.
 
 ## API
 
@@ -187,33 +184,31 @@ CLI flags: `--serve [PORT]`, `--dir PATH`, `--https-port PORT`, `--http-port POR
 
 LAN-trust model — anyone on your local network with the URL can create and watch rooms:
 
-- Traffic is TLS-encrypted, but the certificate is **self-signed** (browsers show a warning until accepted/trusted).
+- Traffic is **plain HTTP, not encrypted** — signaling (room names, SDP) travels in cleartext on your LAN. Media stays DTLS-SRTP encrypted browser-to-browser (including over the TURN relay), but assume the LAN itself is trusted.
 - There is **no password or access code** — for a trusted home/office LAN only, do not expose to the internet.
 - Abuse limits: room names `a-z 0-9 - _` (max 32), viewer IDs (max 64), SDP blobs (max 200 KB) — oversized/invalid signaling is rejected (`400`, bodies over 256 KB get `413` with the connection closed).
-- The HTTPS API sends `Access-Control-Allow-Origin: *` (handy for local dev, open by design).
+- The HTTP API sends `Access-Control-Allow-Origin: *` (handy for local dev, open by design).
 
 ## Troubleshooting
 
-- **Port 443 needs admin** — run as administrator, or use a high port (`python main.py --serve 8443`), no admin needed.
+- **Ports below 1024 need admin** — the default `8080` needs none; run as administrator only for ports like `80`.
 - **Windows Firewall prompt** on first start — allow access for private networks so other devices can connect.
-- **Browser says "not secure"** — expected for a self-signed cert; accept/continue, or install `cert.pem` as a trusted certificate.
 - **Page errors right after an update (e.g. `X is not defined`)** — stale cached `shared.js`: the server sends `Cache-Control: no-cache` on all pages/scripts/styles so browsers always revalidate; if it still happens, hard-refresh with `Ctrl+Shift+R` (or `Cmd+Shift+R` on Mac).
 - **"Cannot bind port"** — another app uses the port; pick a different one.
 - **Room stays listed after closing** — it drops automatically after ~15 s of missed heartbeats.
-- **Moved to another network / IP changed** — just restart the app or press **Make Cert**: the certificate renews itself automatically (same key kept), no manual steps.
+- **Share button says capture is blocked** — expected on `http://LAN-IP`: open the page as `http://localhost:8080/` on the sharing PC itself.
 
 ### Phone shows a black screen (PC works)
 
 1. **Same room, same spelling** — the viewer URL must carry the exact room name (`?room=...`). Easiest: open the rooms list on the device and press **Watch** there instead of typing the URL. Since this version the page itself tells you: `room "X" is not live — check the name` means exactly this.
 2. **Same Wi-Fi** — the phone must be on the same Wi-Fi network as the PC, not mobile data.
-3. **Accept the certificate on the phone** — open `https://<LAN-IP>/` in the phone browser first and proceed past the warning; otherwise nothing loads.
-4. **Use Chrome (Android) or Safari (iPhone)**, updated — in-app browsers and old versions may lack WebRTC.
-5. **Check the sharer page viewer count** after pressing Watch on the phone:
+3. **Use Chrome (Android) or Safari (iPhone)**, updated — in-app browsers and old versions may lack WebRTC.
+4. **Check the sharer page viewer count** after pressing Watch on the phone:
    - Count goes up but still black → the video path is blocked: disable **AP/client isolation** (or "guest mode") on the router, or try another phone/hotspot.
-   - Count stays 0 → the phone never reached the server: recheck steps 1–3 and the IP address.
-   - Log stops after `connected - receiving screen` with no `connection:` lines at all → the device gathered zero ICE candidates (UDP blocked at OS level: firewall, antivirus, VPN, or proxy — hits every browser equally). The viewer log says `offer sent (0 local candidates)` in that case; open `https://<LAN-IP>/api/diag` from any device to confirm.
+   - Count stays 0 → the phone never reached the server: recheck steps 1–2 and the IP address.
+   - Log stops after `connected - receiving screen` with no `connection:` lines at all → the device gathered zero ICE candidates (UDP blocked at OS level: firewall, antivirus, VPN, or proxy — hits every browser equally). The viewer log says `offer sent (0 local candidates)` in that case; open `http://<LAN-IP>:8080/api/diag` from any device to confirm.
    - Log shows `conn=new/ice=new` and every candidate ends with `.local` → multicast DNS is blocked (browsers hide LAN IPs behind mDNS, each side must resolve the other's `*.local` over UDP 5353). The built-in TURN relay now covers this automatically: look for `turn: … (relay fallback ready)` and `typ relay` candidates in the log — the relay path needs only UDP `3478` to the server, no mDNS at all. If the log says `turn unavailable`, check the server console/GUI for `(turn relay off)` and free UDP port `3478` (or set `--turn-port`). Manual fallback (diagnostic): on **BOTH** browsers open `edge://flags` (or `chrome://flags`), switch off **"Anonymize local IPs exposed by WebRTC"**, relaunch — candidates become literal `192.168.x.x`. If it stays black with literal IPs on both sides and the log moves to `ice: checking → failed`, the culprit is plain UDP blocking (firewall/AP isolation) instead — the relay path should still connect; otherwise allow inter-client UDP or keep both devices on the same AP/band.
-6. **No sound on the phone** — use the volume slider at the bottom of the viewer page (a no-sound badge means the shared source itself has no audio).
+5. **No sound on the phone** — use the volume slider at the bottom of the viewer page (a no-sound badge means the shared source itself has no audio).
 
 ## License
 

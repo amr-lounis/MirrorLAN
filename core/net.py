@@ -28,10 +28,9 @@ def local_ips() -> List[str]:
     return out or ["127.0.0.1"]
 
 
-def server_urls(https_port: int) -> List[str]:
-    """Full https:// URLs clients can open, localhost first."""
-    suffix = "" if https_port == 443 else ":" + str(https_port)
-    urls = ["https://localhost%s/" % suffix]
+def server_urls(port: int) -> List[str]:
+    """Full http:// URLs clients can open, localhost first."""
+    urls = ["http://localhost:%d/" % port]
     for addr in local_ips():
-        urls.append("https://%s%s/" % (addr, suffix))
+        urls.append("http://%s:%d/" % (addr, port))
     return urls

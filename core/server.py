@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""HTTPS static server: serves a folder, redirects http to https,
-and exposes the tiny /api signaling endpoints used by Sharer/Viewer.
+"""Plain-HTTP static server: serves a folder and exposes the tiny /api
+signaling endpoints used by Sharer/Viewer. No TLS (see Config.port).
+
+Note: browsers enable screen capture only in secure contexts, so with
+plain HTTP only http://localhost can share; LAN devices can watch.
 """
 from __future__ import annotations
 
 import json
 import os
-import ssl
 import threading
-from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .config import Config
@@ -18,7 +20,7 @@ from .turn import TurnServer
 
 
 class ServerError(Exception):
-    """Raised when the server cannot start (bad cert, busy port, ...)."""
+    """Raised when the server cannot start (busy port, ...)."""
 
 
 class _ThreadedServer(ThreadingHTTPServer):
@@ -44,7 +46,7 @@ _MAX_BODY_BYTES = 256 * 1024
 
 
 class _CorsMixin:
-    """Identical CORS answers on both listeners (API + http redirect)."""
+    """CORS answers shared by the API and static responses."""
 
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -57,29 +59,6 @@ class _CorsMixin:
         self.end_headers()
 
 
-def create_redirect_handler(suffix: str) -> type:
-    """301 redirector: every http:// request becomes the https:// twin."""
-
-    class RedirectHandler(_CorsMixin, BaseHTTPRequestHandler):
-        def log_message(self, *args):
-            pass
-
-        def _go(self):
-            host = (self.headers.get("Host") or "localhost").split(":")[0]
-            self.send_response(301)
-            self.send_header("Location", "https://%s%s%s" % (host, suffix, self.path))
-            self.end_headers()
-
-        do_GET = _go
-        do_HEAD = _go
-        do_POST = _go
-
-        def do_OPTIONS(self):
-            self._serve_preflight()
-
-    return RedirectHandler
-
-
 def create_api_handler(store: SignalingStore, www_dir: str,
                          turn: TurnServer | None = None) -> type:
     """Static files plus /api/offers, /api/claim, /api/answer, /api/offer,
@@ -87,8 +66,8 @@ def create_api_handler(store: SignalingStore, www_dir: str,
     /api/sharer/leave."""
 
     class ApiHandler(_CorsMixin, SimpleHTTPRequestHandler):
-        # HTTP/1.1 keep-alive: browsers reuse one TLS connection for the
-        # 1.2s polls instead of a full handshake per request (battery/CPU).
+        # HTTP/1.1 keep-alive: browsers reuse one connection for the
+        # 1s polls instead of a full handshake per request (battery/CPU).
         # Every response path below carries an explicit length so a reused
         # connection never stalls waiting for a body that never comes.
         protocol_version = "HTTP/1.1"
@@ -239,39 +218,30 @@ def create_api_handler(store: SignalingStore, www_dir: str,
 
 
 class ServerManager:
-    """Owns all listeners (https + http redirect + TURN relay) and signaling."""
+    """Owns the HTTP listener, the TURN relay, and the signaling store."""
 
     def __init__(self, config: Config) -> None:
         self.config = config
         self.store = SignalingStore(config.max_id_len, config.max_sdp_len,
                                     config.max_room_len, config.sharer_timeout)
         self.turn: TurnServer | None = None
-        self._https: ThreadingHTTPServer | None = None
+        self._http: ThreadingHTTPServer | None = None
         self._lock = threading.Lock()
-        self.redirect_ok = False
         self.turn_ok = False
         self.turn_error = ""
 
     @property
     def running(self) -> bool:
-        return self._https is not None
+        return self._http is not None
 
     def start(self) -> list:
         """Bind ports and serve in background threads. Returns client URLs."""
         with self._lock:
-            if self._https is not None:
+            if self._http is not None:
                 raise ServerError("already running")
             self.config.validate()
             os.makedirs(self.config.www_dir, exist_ok=True)
-            if not (os.path.exists(self.config.cert_file)
-                    and os.path.exists(self.config.key_file)):
-                raise ServerError("missing cert.pem/key.pem - press Make Cert first")
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            try:
-                context.load_cert_chain(self.config.cert_file, self.config.key_file)
-            except Exception as exc:
-                raise ServerError("bad cert.pem/key.pem (%s)" % exc)
-            # TURN relay first: best-effort. If UDP 3478 is busy the
+            # TURN relay first: best-effort. If the UDP port is busy the
             # server still runs — pages fall back to host candidates.
             self.turn = None
             self.turn_ok = False
@@ -287,35 +257,17 @@ class ServerManager:
                     self.turn_error = str(exc)
             handler = create_api_handler(self.store, self.config.www_dir, self.turn)
             try:
-                server = _ThreadedServer(("0.0.0.0", self.config.https_port), handler)
+                server = _ThreadedServer(("0.0.0.0", self.config.port), handler)
             except PermissionError:
                 self._drop_turn()  # else the relay sockets leak for the next start
                 raise ServerError("cannot bind port %d (admin/root required)"
-                                  % self.config.https_port)
+                                  % self.config.port)
             except OSError as exc:
                 self._drop_turn()
-                raise ServerError("cannot bind port %d (%s)" % (self.config.https_port, exc))
-            try:
-                server.socket = context.wrap_socket(server.socket, server_side=True)
-            except Exception as exc:
-                server.server_close()  # else the bound port leaks for the next start
-                self._drop_turn()
-                raise ServerError("TLS wrap failed (%s)" % exc)
-            self._https = server
-            redirector = create_redirect_handler(self.config.https_suffix)
-            self.redirect_ok = self._launch_redirect(redirector)
+                raise ServerError("cannot bind port %d (%s)" % (self.config.port, exc))
+            self._http = server
             threading.Thread(target=server.serve_forever, daemon=True).start()
-            return server_urls(self.config.https_port)
-
-    def _launch_redirect(self, handler: type) -> bool:
-        """Best-effort http->https redirect on the plain http port."""
-        try:
-            redirect = _ThreadedServer(("0.0.0.0", self.config.http_port), handler)
-        except OSError:
-            return False
-        threading.Thread(target=redirect.serve_forever, daemon=True).start()
-        self._redirect = redirect
-        return True
+            return server_urls(self.config.port)
 
     def _drop_turn(self) -> None:
         """Stop the relay without touching anything else (lock must be held)."""
@@ -331,17 +283,14 @@ class ServerManager:
         """Shut everything down and drop all pending signaling state."""
         with self._lock:
             self._drop_turn()
-            for server in (getattr(self, "_redirect", None), self._https):
-                if server is None:
-                    continue
+            if self._http is not None:
                 try:
-                    server.shutdown()
+                    self._http.shutdown()
                 except Exception:
                     pass
                 try:
-                    server.server_close()
+                    self._http.server_close()
                 except Exception:
                     pass
-            self._https = None
-            self._redirect = None
+                self._http = None
             self.store.clear()

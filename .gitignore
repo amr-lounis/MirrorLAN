@@ -17,13 +17,6 @@ pip-delete-this-directory.txt
 build/
 dist/
 
-# Certificates & keys (generated locally at runtime)
-/cert.pem
-/key.pem
-*.pem
-*.key
-!/www/*.pem
-
 # IDE / editors
 .vscode/
 .idea/

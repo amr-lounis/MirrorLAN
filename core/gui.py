@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import tkinter as tk
 
-from .certs import ensure_default_cert
 from .config import APP_DIR, Config
 from .server import ServerError, ServerManager
 
@@ -48,7 +47,7 @@ class ServerGui:
         titles = tk.Frame(head, bg=BG)
         titles.pack(side="left")
         tk.Label(titles, text="MirrorLAN", font=TITLE, bg=BG, fg=FG).pack(anchor="w")
-        tk.Label(titles, text="HTTPS screen share  •  offline",
+        tk.Label(titles, text="LAN screen share  •  offline  •  http",
                  font=SUB, bg=BG, fg=MUTED).pack(anchor="w")
         pill = tk.Frame(head, bg=CARD, highlightthickness=1, highlightbackground=BORDER,
                         padx=10, pady=5)
@@ -69,9 +68,9 @@ class ServerGui:
         self.port = tk.Entry(row, width=8, font=FONT, bg=FIELD, fg=FG,
                              insertbackground=FG, relief="flat",
                              highlightthickness=1, highlightbackground=BORDER)
-        self.port.insert(0, str(self.config.https_port))
+        self.port.insert(0, str(self.config.port))
         self.port.pack(side="left", padx=(8, 0), ipady=4)
-        tk.Label(row, text="443 needs admin", font=SMALL, bg=CARD,
+        tk.Label(row, text="share from localhost", font=SMALL, bg=CARD,
                  fg=MUTED).pack(side="right")
         self.btn_power = tk.Button(card, text="Start Server", font=("Segoe UI", 11, "bold"),
                                    bg=GREEN, fg="#04120a", activebackground=GREEN_DARK,
@@ -96,11 +95,6 @@ class ServerGui:
                   highlightthickness=1, highlightbackground=BORDER,
                   cursor="hand2", padx=12, pady=4,
                   command=self.copy_all).pack(side="left")
-        tk.Button(foot, text="Make Cert", font=FONT, bg=CARD, fg=FG,
-                  activebackground=BORDER, activeforeground=FG, relief="flat",
-                  highlightthickness=1, highlightbackground=BORDER,
-                  cursor="hand2", padx=12, pady=4,
-                  command=self.make_cert).pack(side="right")
         self.msg = tk.Label(root, text="Ready.", font=SMALL, bg=BG, fg=MUTED,
                             wraplength=440, justify="left")
         self.msg.pack(anchor="w", padx=18, pady=(0, 12))
@@ -165,7 +159,7 @@ class ServerGui:
         if not (raw.isdigit() and 1 <= int(raw) <= 65535):
             self.say("Invalid port (1-65535).", RED)
             return
-        self.config.https_port = int(raw)
+        self.config.port = int(raw)
         try:
             urls = self.manager.start()
         except (ValueError, ServerError) as exc:
@@ -173,9 +167,8 @@ class ServerGui:
             return
         self._rebuild_rows(urls)
         self._set_running(True)
-        note = "" if self.manager.redirect_ok else " (http redirect off)"
-        note += "" if self.manager.turn_ok else " (turn relay off)"
-        self.say("Serving ./www on port %s%s." % (raw, note), GREEN)
+        note = "" if self.manager.turn_ok else " (turn relay off)"
+        self.say("Serving ./www on port %s%s. Share from localhost." % (raw, note), GREEN)
 
     def stop(self) -> None:
         self.manager.stop()
@@ -192,19 +185,6 @@ class ServerGui:
         self.root.clipboard_clear()
         self.root.clipboard_append("\n".join(lines))
         self.say("Copied %d address(es)." % len(lines), GREEN)
-
-    def make_cert(self) -> None:
-        try:
-            status = ensure_default_cert(self.config)
-        except Exception as exc:
-            self.say("Cert failed: %s" % exc, RED)
-            return
-        if status == "ok":
-            self.say("Certificate ready.", GREEN)
-        elif status == "created":
-            self.say("Certificate created.", GREEN)
-        else:
-            self.say("Certificate renewed (%s)." % status.split(":", 1)[1], GREEN)
 
     def close(self) -> None:
         try:

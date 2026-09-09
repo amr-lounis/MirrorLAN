@@ -354,7 +354,7 @@ class TestTurnEndpoint(unittest.TestCase):
 
 
 class TestManagerTurnIntegration(unittest.TestCase):
-    """ServerManager starts TURN next to HTTPS and serves /api/turn."""
+    """ServerManager starts HTTP + TURN and serves the app over plain HTTP."""
 
     def _free_port(self, udp=False):
         probe = socket.socket(socket.AF_INET,
@@ -364,56 +364,63 @@ class TestManagerTurnIntegration(unittest.TestCase):
         probe.close()
         return port
 
-    def test_manager_turn_wiring(self):
-        import json
-        import ssl
-        from unittest import mock
-
-        from core.certs import ensure_default_cert
+    def _make_cfg(self, tmpname):
         from core.config import Config
-        from core.server import ServerManager
 
-        tmp = tempfile.TemporaryDirectory()
-        www = os.path.join(tmp.name, "www")
+        www = os.path.join(tmpname, "www")
         os.makedirs(www)
         with open(os.path.join(www, "index.html"), "w") as handle:
             handle.write("<html></html>")
         cfg = Config()
         cfg.www_dir = www
-        cfg.cert_file = os.path.join(tmp.name, "cert.pem")
-        cfg.key_file = os.path.join(tmp.name, "key.pem")
-        cfg.https_port = self._free_port()
-        cfg.http_port = self._free_port()
+        cfg.port = self._free_port()
         cfg.turn_port = self._free_port(udp=True)
-        with mock.patch("core.certs.local_ips", return_value=[]):
-            ensure_default_cert(cfg)
-        mgr = ServerManager(cfg)
+        return cfg
+
+    def _plain_get(self, port, path):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
         try:
-            urls = mgr.start()
-            self.assertTrue(urls)
-            self.assertTrue(mgr.turn_ok)
-            self.assertIsNotNone(mgr.turn)
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            conn = http.client.HTTPSConnection("127.0.0.1", cfg.https_port,
-                                               timeout=5, context=ctx)
-            conn.request("GET", "/api/turn")
+            conn.request("GET", path)
             resp = conn.getresponse()
-            body = json.loads(resp.read().decode())
+            return resp.status, resp.read()
+        finally:
             conn.close()
-            self.assertEqual(resp.status, 200)
-            self.assertIn("turn:127.0.0.1:", body["urls"])
-            self.assertIn("credential", body)
-            mgr.stop()
+
+    def test_manager_http_and_turn_wiring(self):
+        import json
+
+        from core.server import ServerManager
+
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            mgr = ServerManager(self._make_cfg(tmp.name))
+            urls = mgr.start()
+            try:
+                self.assertTrue(urls)
+                self.assertTrue(urls[0].startswith("http://"))
+                self.assertTrue(mgr.turn_ok)
+                self.assertIsNotNone(mgr.turn)
+                status, body = self._plain_get(mgr.config.port, "/api/rooms")
+                self.assertEqual(status, 200)
+                self.assertIn(b"rooms", body)
+                status, body = self._plain_get(mgr.config.port, "/index.html")
+                self.assertEqual(status, 200)
+                status, body = self._plain_get(mgr.config.port, "/api/turn")
+                data = json.loads(body.decode())
+                self.assertEqual(status, 200)
+                self.assertIn("turn:127.0.0.1:", data["urls"])
+                self.assertIn("credential", data)
+            finally:
+                mgr.stop()
             self.assertFalse(mgr.turn_ok)
             # restart works: no socket leaked by the first start/stop cycle
-            cfg.https_port = self._free_port()
-            cfg.http_port = self._free_port()
+            mgr.config.port = self._free_port()
             mgr.start()
-            self.assertTrue(mgr.turn_ok)
+            try:
+                self.assertTrue(mgr.turn_ok)
+            finally:
+                mgr.stop()
         finally:
-            mgr.stop()
             tmp.cleanup()
 
 

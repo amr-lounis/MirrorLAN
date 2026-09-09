@@ -6,7 +6,7 @@
 </defs>
 <rect x="0" y="0" width="1240" height="1700" fill="#0f1115"/>
 <text x="620" y="34" text-anchor="middle" font-size="22" font-weight="bold" fill="#eef1f6">MirrorLAN — Activity Diagram</text>
-<text x="620" y="56" text-anchor="middle" font-size="13" fill="#8b93a7">screen share over LAN: GUI start → rooms → WebRTC signaling → direct P2P media</text>
+<text x="620" y="56" text-anchor="middle" font-size="13" fill="#8b93a7">screen share over LAN: GUI start → rooms → WebRTC signaling → direct P2P / TURN relay</text>
 
 <!-- swimlanes -->
 <rect x="20" y="70" width="380" height="1590" fill="#0c0f14"/>
@@ -28,19 +28,19 @@
 <text x="620" y="195" text-anchor="middle" font-size="12.5" fill="#eef1f6">Launch GUI / --serve</text>
 <line x1="620" y1="210" x2="620" y2="230" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
 <polygon points="620,230 720,262 620,294 520,262" fill="#171a21" stroke="#22c55e" stroke-width="2"/>
-<text x="620" y="267" text-anchor="middle" font-size="11.5" fill="#eef1f6">cert valid?</text>
+<text x="620" y="267" text-anchor="middle" font-size="11.5" fill="#eef1f6">TURN bound?</text>
 <text x="632" y="308" font-size="10" fill="#ffd479">no</text>
 <line x1="620" y1="294" x2="620" y2="312" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
 <rect x="500" y="312" width="240" height="44" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
-<text x="620" y="331" text-anchor="middle" font-size="12.5" fill="#eef1f6">Create / renew cert</text>
-<text x="620" y="346" text-anchor="middle" font-size="11" fill="#8b93a7">(keep key)</text>
+<text x="620" y="331" text-anchor="middle" font-size="12.5" fill="#eef1f6">TURN failed — host-only</text>
+<text x="620" y="346" text-anchor="middle" font-size="11" fill="#8b93a7">(pages still work)</text>
 <line x1="620" y1="356" x2="620" y2="372" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
 <polygon points="620,372 628,380 620,388 612,380" fill="#4f7cff"/>
 <polyline points="720,262 775,262 775,380 630,380" fill="none" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
 <text x="745" y="252" font-size="10" fill="#ffd479">yes</text>
 <line x1="620" y1="388" x2="620" y2="400" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
 <rect x="500" y="400" width="240" height="40" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
-<text x="620" y="425" text-anchor="middle" font-size="12.5" fill="#eef1f6">Bind HTTPS :443 + redirect :80</text>
+<text x="620" y="425" text-anchor="middle" font-size="12.5" fill="#eef1f6">Bind HTTP :8080 + TURN :3478</text>
 <line x1="620" y1="440" x2="620" y2="460" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
 <rect x="500" y="460" width="240" height="40" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
 <text x="620" y="485" text-anchor="middle" font-size="12.5" fill="#eef1f6">Show LAN addresses</text>
@@ -67,7 +67,7 @@
 <circle cx="210" cy="590" r="9" fill="#22c55e"/>
 <line x1="210" y1="599" x2="210" y2="620" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
 <rect x="80" y="620" width="260" height="44" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>
-<text x="210" y="639" text-anchor="middle" font-size="12.5" fill="#eef1f6">Open https://IP — room</text>
+<text x="210" y="639" text-anchor="middle" font-size="12.5" fill="#eef1f6">Open localhost — room</text>
 <text x="210" y="654" text-anchor="middle" font-size="11" fill="#8b93a7">+ max, Share</text>
 <line x1="210" y1="664" x2="210" y2="690" stroke="#8b93a7" stroke-width="1.5" marker-end="url(#arr)"/>
 <rect x="80" y="690" width="260" height="40" rx="10" fill="#171a21" stroke="#4f7cff" stroke-width="1.5"/>

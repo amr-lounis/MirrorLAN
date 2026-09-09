@@ -159,6 +159,12 @@ async function serveViewer(id, offerSdp){
 
 $('share').onclick = async () => {
   starting = true; paintSharerBtns();
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+    starting = false; paintSharerBtns();
+    alert('Screen capture is blocked here: browsers allow it only on http://localhost. Open this page on the sharing PC itself.');
+    log('capture unavailable: insecure context - sharing works only from http://localhost');
+    return;
+  }
   try{
     screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: true });
   }catch(e){

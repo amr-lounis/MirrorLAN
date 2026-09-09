@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """Entry point. Everything else lives in the core/ package.
 
+Plain HTTP only (no TLS). Browsers allow screen capture solely from
+http://localhost, so sharing works from this PC; LAN devices can watch.
+
 Usage:
     python main.py              launch GUI (port, Start/Stop, copy addresses)
-    python main.py --serve      run headless server (default port 443)
-    python main.py --serve 8443 run headless server on custom port
-    python main.py --serve 8443 --dir ./site   serve another folder
+    python main.py --serve      run headless server (default port 8080)
+    python main.py --serve 8081 run headless server on custom port
+    python main.py --serve 8081 --dir ./site   serve another folder
     python main.py --serve --turn-port 0       disable the TURN relay
 
 Layout:
     core/config.py     all settings in one Config dataclass
-    core/certs.py      self-signed ECDSA certificates (stdlib only)
     core/net.py        local IPs and public URLs
     core/signaling.py  thread-safe viewer offer/answer store
-    core/server.py     https server + http redirect + ServerManager
+    core/turn.py       TURN/UDP relay fallback (stdlib only)
+    core/server.py     http server + ServerManager
     core/gui.py        Tkinter control panel
     www/               served pages (Sharer.html, Viewer.html, ...)
 """
@@ -44,15 +47,13 @@ def parse_args(argv: list) -> tuple:
         mode = "serve"
         rest = rest[1:]
         if rest and not rest[0].startswith("--"):
-            config.https_port = int(rest.pop(0))
+            config.port = int(rest.pop(0))
     while rest:
         flag = rest.pop(0)
         if flag == "--dir" and rest:
             config.www_dir = os.path.abspath(rest.pop(0))
-        elif flag == "--https-port" and rest:
-            config.https_port = int(rest.pop(0))
-        elif flag == "--http-port" and rest:
-            config.http_port = int(rest.pop(0))
+        elif flag == "--port" and rest:
+            config.port = int(rest.pop(0))
         elif flag == "--turn-port" and rest:
             config.turn_port = int(rest.pop(0))
         else:
@@ -63,14 +64,7 @@ def parse_args(argv: list) -> tuple:
 
 def run_headless(config: Config) -> int:
     """Start the server and block until Ctrl+C. Returns exit code."""
-    from core.certs import ensure_default_cert
-
     manager = ServerManager(config)
-    status = ensure_default_cert(config)
-    if status == "created":
-        _say("created cert.pem / key.pem")
-    elif status.startswith("renewed:"):
-        _say("renewed cert.pem (%s)" % status.split(":", 1)[1])
     try:
         urls = manager.start()
     except ServerError as exc:
@@ -78,7 +72,9 @@ def run_headless(config: Config) -> int:
         return 1
     _say("serving %s" % config.www_dir)
     for url in urls:
-        _say(url + " (http redirects here)")
+        _say(url)
+    _say("share from http://localhost:%d/ (browsers block capture on LAN http)"
+         % config.port)
     if manager.turn_ok and manager.turn is not None:
         _say("turn relay on udp :%d" % manager.turn.bound_port)
     elif config.turn_port:

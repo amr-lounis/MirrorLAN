@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Tuple
 
 
 def _app_dir() -> str:
@@ -35,16 +34,13 @@ def _resource(name: str) -> str:
 class Config:
     """All tunable settings of the server."""
 
-    https_port: int = 443
-    http_port: int = 80
+    # Plain HTTP only (no TLS). Consequence, by browser design: screen
+    # capture works solely from http://localhost on the sharing PC;
+    # other LAN devices can watch but not share.
+    port: int = 8080
     turn_port: int = 3478  # TURN/UDP relay fallback (0 = disabled)
     turn_realm: str = "MirrorLAN"
     www_dir: str = field(default_factory=lambda: _resource("www"))
-    cert_file: str = field(default_factory=lambda: os.path.join(APP_DIR, "cert.pem"))
-    key_file: str = field(default_factory=lambda: os.path.join(APP_DIR, "key.pem"))
-    common_name: str = "MirrorLAN"
-    cert_days: int = 3650
-    dns_names: Tuple[str, ...] = ("localhost",)
     max_id_len: int = 64
     max_sdp_len: int = 200000
     max_room_len: int = 32  # room names: [a-z0-9-_], "" = default room
@@ -52,18 +48,11 @@ class Config:
 
     def validate(self) -> None:
         """Raise ValueError if any setting is invalid."""
-        for name in ("https_port", "http_port"):
-            port = getattr(self, name)
-            if not isinstance(port, int) or not 1 <= port <= 65535:
-                raise ValueError("%s must be 1-65535, got %r" % (name, port))
+        if not isinstance(self.port, int) or not 1 <= self.port <= 65535:
+            raise ValueError("port must be 1-65535, got %r" % (self.port,))
         if not isinstance(self.turn_port, int) or not 0 <= self.turn_port <= 65535:
             raise ValueError("turn_port must be 0-65535, got %r" % (self.turn_port,))
         if self.max_sdp_len <= 0 or self.max_id_len <= 0 or self.max_room_len <= 0:
             raise ValueError("limits must be positive")
         if self.sharer_timeout <= 0:
             raise ValueError("sharer_timeout must be positive")
-
-    @property
-    def https_suffix(self) -> str:
-        """Host suffix for URLs, e.g. ':8443' or '' for default 443."""
-        return "" if self.https_port == 443 else ":" + str(self.https_port)

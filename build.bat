@@ -37,6 +37,5 @@ if errorlevel 1 (
 
 echo.
 echo [OK] dist\MirrorLAN.exe
-echo First run creates cert.pem and key.pem next to the exe automatically.
 echo Double-click runs the GUI with no console window.
 pause
