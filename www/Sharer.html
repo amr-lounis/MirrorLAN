@@ -146,6 +146,10 @@ async function serveViewer(id, offerSdp){
     log('serving viewer ' + id + ' (' + ansCands + ' local candidates)');
     if(mdnsOnly(offerSdp) && mdnsOnly(ansSdp))
       log('viewer ' + id + ' mDNS-only both ends - needs UDP 5353 multicast');
+    else if(mdnsOnly(ansSdp))
+      log('viewer ' + id + ': sharer hides IP (.local) - viewer must resolve via UDP 5353, or flag off HERE');
+    else if(mdnsOnly(offerSdp))
+      log('viewer ' + id + ' hides its IP (.local) - sharer must resolve via UDP 5353, or flag off on VIEWER');
   }catch(e){
     console.error(e);
     delete pcs[id];

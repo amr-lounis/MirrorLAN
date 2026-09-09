@@ -138,11 +138,13 @@ function armMediaWatchdog(myPc, myVid){
     logLocalCands();
     logRemoteCands();
     logVideoState('stuck');
-    if(locMdns && remMdns){
-      showToast('no video path (mDNS blocked?) — allow UDP 5353 / disable VPN…');
-      log('HINT: both ends expose only .local candidates - the browser hides LAN IPs; '
-        + 'allow multicast DNS (UDP 5353) both ways, disable VPN/firewall, or switch off '
-        + '"hide local IPs with mDNS" in chrome/edge://flags for a test');
+    if(locMdns || remMdns){
+      showToast('no video path (mDNS?) — flag off BOTH browsers / UDP 5353…');
+      log('HINT: ' + (locMdns && remMdns ? 'both ends hide LAN IPs (.local)'
+        : remMdns ? 'the sharer hides its LAN IP (.local) - THIS viewer must resolve it'
+        : 'this viewer hides its LAN IP (.local) - the sharer must resolve it')
+        + '; allow multicast DNS (UDP 5353) both ways, disable VPN/firewall, or switch off '
+        + '"hide local IPs with mDNS" in chrome/edge://flags on BOTH browsers for a test');
     }else{
       showToast('no video path — retrying (check VPN/firewall on this device)…');
     }
@@ -184,9 +186,9 @@ function watchMediaStats(myPc, myVid){
           + ' jitter=' + (inbound.jitter !== undefined ? Math.round(inbound.jitter * 1000) : '?') + 'ms'
           + ' conn=' + myPc.connectionState + '/' + myPc.iceConnectionState);
         if(runs >= 2 && (inbound.bytesReceived || 0) === 0){
-          if(locMdns && remMdns){
-            showToast('no video path (mDNS blocked?) — allow UDP 5353 / disable VPN');
-            log('WARNING: mDNS-only candidates, 0 bytes - multicast DNS blocked?');
+          if(locMdns || remMdns){
+            showToast('no video path (mDNS?) — flag off BOTH browsers / UDP 5353');
+            log('WARNING: .local candidates involved, 0 bytes - multicast DNS blocked?');
           }else{
             showToast('connected but no video data — check same Wi-Fi / AP isolation / VPN');
             log('WARNING: 0 bytes received - UDP media blocked? (AP isolation/firewall/VPN)');
@@ -368,6 +370,8 @@ async function watch(keepVid){
             logSdpSummary(data.sdp, 'answer');
             remMdns = mdnsOnly(data.sdp);
             if(locMdns && remMdns) log('both sides mDNS-only (.local) - needs working multicast DNS (UDP 5353)');
+            else if(remMdns) log('sharer exposes only .local - this device must resolve it via UDP 5353, or switch the flag off on the SHARER browser');
+            else if(locMdns) log('this device exposes only .local - the sharer must resolve it via UDP 5353, or switch the flag off here');
             await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
             log('connected - receiving screen (conn=' + pc.connectionState + '/ice=' + pc.iceConnectionState + ')');
             logVideoState('answer');
