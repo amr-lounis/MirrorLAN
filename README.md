@@ -2,9 +2,9 @@
 
 Tiny HTTP server for LAN screen sharing, with a Tkinter control panel and a minimal WebRTC signaling API.
 
-It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over plain HTTP and exposes a few `/api/*` endpoints so sharers and viewers can exchange offers/answers on the local network. No TLS, no certificates, no setup.
+It serves the pages in `www/` (`myshares.html` for sharing, `index.html` + `Viewer.html` for watching) over plain HTTP and exposes a few `/api/*` endpoints so sharers and viewers can exchange offers/answers on the local network. No TLS, no certificates, no setup.
 
-> **Important browser limitation:** screen capture works **only from `http://localhost` on the sharing PC** — browsers disable it on `http://LAN-IP` (secure-context rule). Other devices on the LAN can **watch**, but only the PC running the server can **share**. The rooms page tells LAN visitors exactly that.
+> **Browser note:** some browsers block screen capture on plain-HTTP LAN addresses (secure-context rule). If the picker fails with `Screen capture failed`, open the sharing page as `http://localhost/` on the sharing PC itself and try again.
 
 ![MirrorLAN running with LAN addresses](readme/gui-running.JPG)
 
@@ -14,11 +14,12 @@ It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over plain HTTP and
 - WebRTC signaling API (offers, answers, rooms, sharer heartbeat)
 - Built-in TURN/UDP relay (stdlib only) — automatic fallback when direct browser-to-browser media is blocked (mDNS filtered, AP isolation, VPN); pages use it with zero setup
 - Tkinter GUI: pick a port, Start/Stop, copy LAN addresses
+- Multi-room sharing grid (`myshares.html`): up to 4 live previews per screen, each card a full sharer with Share/Stop/Fullscreen controls, in-page live-rooms panel, and a leave guard so Back/close never kills shares by accident
 - Single-file Windows build via PyInstaller (`build.bat`)
 
 ## How it works
 
-1. The **sharer** opens `http://localhost/` **on the sharing PC itself**, types a room name, and presses **Share** — the page captures the screen/window and sends a heartbeat so the room stays listed as live.
+1. The **sharer** opens `http://localhost/myshares.html` **on the sharing PC itself**, presses **+**, types a room name, sets **Max viewers**, and presses **Share** — the browser picker captures the screen/window into a card, and the card sends a heartbeat so the room stays listed as live. Repeat **+** for more rooms (each card is an independent sharer).
 2. A **viewer** on another device opens `http://<LAN-IP>/`, sees the live room, and presses **Watch** — the page posts a WebRTC offer to `/api/offer`.
 3. The sharer claims the offer (`/api/claim`), replies with an answer (`/api/answer`), and the viewer picks it up.
 4. Video/audio then flows **directly browser-to-browser** (WebRTC peer connection) — the server only relays the signaling, it never sees the media. When the direct path cannot form (see [mDNS / black screen](#phone-shows-a-black-screen-pc-works)), both pages automatically fall back to the built-in TURN relay on UDP `3478`: relay candidates carry the server's literal IP, so no multicast DNS is needed. Relayed media stays DTLS-SRTP encrypted end-to-end — the server forwards opaque packets it cannot decrypt.
@@ -36,11 +37,11 @@ Open the app, pick a port, and press **Start Server**. Copy one of the LAN addre
 ![Server stopped](readme/gui-stopped.JPG)
 ![Server running with LAN addresses](readme/gui-running.JPG)
 
-### 2. Create a room
+### 2. Create rooms
 
-On the sharing PC, open `http://localhost/` in a browser, type a room name, set **Max viewers** (1–99, default 1), and press **Share**.
+On the sharing PC, open `http://localhost/myshares.html`, press **+**, type a room name, set **Max viewers** (1–99, default 1), and press **Share** — a live card appears in the grid (up to 4 per row). Use the **Live Rooms** button under **+** to browse live rooms without leaving the page.
 
-![New room](readme/rooms-new.JPG)
+![New share](readme/rooms-new.JPG)
 
 ### 3. Choose what to share
 
@@ -51,7 +52,7 @@ The browser asks what to share — a single window or the entire screen (see [Mo
 
 ### 4. Sharing live
 
-The sharer view shows the stream with the viewer count on top.
+Each card shows its stream with the viewer count (`viewers/max`) on top, plus Share/Stop/Fullscreen controls that auto-hide after 5 s. Leaving the tab while anything is live asks for confirmation first.
 
 ![Sharing](readme/sharer-live.JPG)
 
@@ -65,7 +66,7 @@ The room appears as live — press **Watch** to view the shared screen.
 
 Share a full display through the browser picker (`Entire Screen` tab):
 
-1. On the rooms page, type a room name and press **Share**.
+1. On the My Shares page, press **+** and confirm the room.
 2. In the browser dialog, open the **Entire Screen** tab, pick the display, optionally enable **Share with system audio**, and confirm.
 
 Behavior:
@@ -73,8 +74,8 @@ Behavior:
 - **Frame rate**: requested at ~15 fps (up to 30) — smooth enough for demos and docs while staying light on the LAN.
 - **Audio**: system audio is requested when the browser allows it; if the browser refuses audio, sharing continues video-only automatically. The sharer page shows a green dot (top-left) when an audio track is really captured, gray when video-only — so check it first if the viewer hears nothing. On the viewer side, a volume slider + mute button appear at the bottom whenever the stream carries audio (video-only streams show a no-sound badge instead).
 - **Cursor**: the mouse pointer is part of the capture, as rendered by the OS.
-- **Viewer count**: the badge on the sharer page shows live WebRTC connections.
-- **Stop**: red stop button, the browser's own "Stop sharing" control, or just close the tab — the room is freed immediately (closing the tab also notifies the server, otherwise the room drops after ~15 s of missed heartbeats).
+- **Viewer count**: the badge on each card shows live WebRTC connections.
+- **Stop**: red stop button per card (the card stays so the same room can be re-shared), the browser's own "Stop sharing" control, the card's × (removes the card), or just close the tab — the room is freed immediately (closing the tab also notifies the server, otherwise the room drops after ~15 s of missed heartbeats). Pressing browser Back or closing the tab while live asks for confirmation first.
 - **Offline-friendly**: everything stays on the LAN and works without internet — direct peer paths first, built-in TURN relay as automatic fallback.
 
 ### Extend display to any browser device
@@ -84,14 +85,14 @@ Turn any phone, tablet, or TV browser into a wireless second monitor:
 1. On Windows, extend your desktop: **Settings → System → Display → Extend these displays** (or `Win+P` → Extend). With a single physical screen, create a virtual one with https://github.com/VirtualDrivers/Virtual-Display-Driver
 
 ![Extended displays in Windows settings](readme/extend-display.JPG)
-2. In MirrorLAN, press **Share** and pick the extended/virtual display under the **Entire Screen** tab.
+2. In MirrorLAN, press **+** and pick the extended/virtual display under the **Entire Screen** tab.
 3. Open the room from the other device's browser and press **Watch** — it now shows your second screen.
 
 ## Window capture
 
 Share one app window instead of the whole screen (browser picker → `Window` tab):
 
-1. On the rooms page, type a room name and press **Share**.
+1. On the My Shares page, press **+** and confirm the room.
 2. In the browser dialog, open the **Window** tab, pick the app window, and confirm.
 
 Behavior:
@@ -99,7 +100,7 @@ Behavior:
 - The window picture is **isolated**: overlapping windows on your desktop do not leak into the stream.
 - **Close the shared window**: capture ends automatically (track-ended detection) — sharing stops and the room is freed, no stuck "live" room.
 - **Minimize**: the stream keeps running; what viewers see while minimized depends on the browser (usually the last frame).
-- Same URL/heartbeat/viewer-count behavior as monitor mode. Switching between window and screen requires pressing Share again and picking a new source.
+- Same URL/heartbeat/viewer-count behavior as monitor mode. Switching between window and screen means adding another card with **+**.
 
 ## Requirements
 
@@ -124,7 +125,7 @@ python main.py --serve 8081 --dir ./site
 
 Headless mode prints the LAN addresses to the console.
 
-Share from `http://localhost/` on the sharing PC. Other devices on the same network open `http://<LAN-IP>/` (or your custom port) and press **Watch** — watching works from anywhere on the LAN, sharing only from localhost.
+Share from `http://localhost/myshares.html` on the sharing PC. Other devices on the same network open `http://<LAN-IP>/` (or your custom port) and press **Watch** — watching works from anywhere on the LAN.
 
 GUI buttons:
 
@@ -148,10 +149,11 @@ core/signaling.py  thread-safe viewer offer/answer store
 core/server.py     http server + ServerManager (shared CORS mixin)
 core/turn.py       minimal TURN/UDP relay (RFC 5766 subset, stdlib only)
 core/gui.py        Tkinter control panel
-www/shared.css     stage theme shared by Sharer/Viewer
-www/shared.js      stage helpers (toast, fullscreen, room parsing, autoplay…)
-www/               pages + per-page assets (index, Sharer, Viewer,
-                   myshares — each as .html + .css + .js)
+www/*.html          pages (index, Sharer, Viewer, myshares)
+www/css/shared.css  stage theme shared by Sharer/Viewer
+www/css/…           one stylesheet per page (index, sharer, viewer, myshares)
+www/js/shared.js    helpers (toast, fullscreen, room parsing, autoplay…)
+www/js/…            one script per page (index, sharer, viewer, myshares)
 ```
 
 ## Configuration
@@ -197,7 +199,7 @@ LAN-trust model — anyone on your local network with the URL can create and wat
 - **Page errors right after an update (e.g. `X is not defined`)** — stale cached `shared.js`: the server sends `Cache-Control: no-cache` on all pages/scripts/styles so browsers always revalidate; if it still happens, hard-refresh with `Ctrl+Shift+R` (or `Cmd+Shift+R` on Mac).
 - **"Cannot bind port"** — another app uses the port; pick a different one.
 - **Room stays listed after closing** — it drops automatically after ~15 s of missed heartbeats.
-- **Share button says capture is blocked** — expected on `http://LAN-IP`: open the page as `http://localhost/` on the sharing PC itself.
+- **Screen capture fails (`Screen capture failed`)** — the browser refused the picker (often the secure-context rule on plain-HTTP LAN addresses): open the sharing page as `http://localhost/` on the sharing PC itself and try again.
 
 ### Phone shows a black screen (PC works)
 
