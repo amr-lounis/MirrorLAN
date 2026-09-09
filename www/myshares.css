@@ -1,0 +1,59 @@
+/* MirrorLAN Multi-room sharer grid styles (extracted from myshares.html). */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:#0f1115;color:#eef1f6;font-family:system-ui;display:flex;flex-direction:column;align-items:center;padding:24px 16px}
+.wrap{width:100%;max-width:1180px;display:flex;flex-direction:column;align-items:center}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:#8b93a7;font-size:13px;margin:0 0 16px}
+.add{width:56px;height:56px;border-radius:50%;background:transparent;color:#eef1f6;border:2px solid #eef1f6;font-size:28px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;margin:6px 0 20px}
+.add:active{transform:scale(.94)}
+.grid{width:100%;display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr))}
+.card{position:relative;background:#171a21;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden}
+.card video{display:block;width:100%;aspect-ratio:16/9;background:#000;object-fit:contain}
+.card .name{padding:10px 12px;font-family:Consolas,monospace;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-top:1px solid #2a2f3a}
+.card .live{position:absolute;top:10px;left:10px;width:10px;height:10px;border-radius:50%;background:#22c55e;z-index:2}
+.card .aud{position:absolute;top:10px;left:28px;width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.25);z-index:2}
+.card .count{position:absolute;top:8px;right:46px;min-width:30px;height:26px;padding:0 8px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:2}
+.card .close{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:16px;cursor:pointer;opacity:0;transition:opacity .2s;z-index:2}
+.card:hover .close,.card:focus-within .close{opacity:1}
+@media (hover:none){.card .close{opacity:1}}
+.card .stat{position:absolute;top:38px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.65);color:#fff;font-size:12px;padding:6px 12px;border-radius:999px;display:none;z-index:2;white-space:nowrap;max-width:92%;overflow:hidden;text-overflow:ellipsis}
+.card{--btn:rgba(34,197,94,.9);--btn-fg:#000}
+.card .bar{position:absolute;bottom:12px;left:0;right:0;display:flex;justify-content:center;gap:8px;opacity:.35;transition:opacity .25s,transform .35s;transform:translateY(0);z-index:3}
+.card:hover .bar,.card .bar:focus-within{opacity:1}
+.card .bar.hidden{opacity:0;transform:translateY(150%);pointer-events:none}
+.card .bar button{background:var(--btn);color:var(--btn-fg);border:0;width:52px;height:52px;border-radius:50%;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.card .bar button.danger{background:rgba(239,68,68,.9);color:#fff}
+.card .bar button.blue{background:rgba(79,124,255,.9);color:#fff}
+.card .bar button:disabled{opacity:.3}
+.card .bar button:active{transform:scale(.94)}
+.card .bar button svg{display:block}
+.card.fs{position:fixed;inset:0;z-index:30;border-radius:0;background:#000}
+.card.fs video{aspect-ratio:auto;max-height:calc(100vh - 60px)}
+.empty{color:#8b93a7;font-size:13px;padding:24px 2px;text-align:center}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:20;padding:16px}
+.overlay.open{display:flex}
+.modal{width:100%;max-width:360px;background:#171a21;border:1px solid #2a2f3a;border-radius:12px;padding:18px}
+.modal h2{font-size:15px;margin:0 0 12px}
+.modal label{font-size:12px;color:#8b93a7;display:block;margin:10px 0 4px}
+.modal input{width:100%;background:#0f1115;color:#eef1f6;border:1px solid #2a2f3a;border-radius:10px;padding:10px 12px;font-size:14px;font-family:Consolas,monospace}
+.modal input:focus{outline:none;border-color:#4f7cff}
+.modal .merr{color:#ef4444;font-size:12px;min-height:18px;margin:6px 0 4px}
+.modal .mrow{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+.modal button{border:0;border-radius:10px;padding:9px 16px;font-weight:700;font-size:14px;cursor:pointer}
+.modal .ok{background:#22c55e;color:#04120a}
+.modal .cancel{background:transparent;color:#eef1f6;border:1px solid #2a2f3a}
+.roomsbtn{margin:0 0 22px;background:rgba(79,124,255,.14);border:1px solid rgba(79,124,255,.55);color:#c7d7ff;font-size:14px;font-weight:700;border-radius:999px;padding:10px 24px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;font-family:inherit;transition:background .15s,color .15s}
+.roomsbtn:hover{background:rgba(79,124,255,.3);color:#fff}
+.roomsbtn:active{transform:scale(.96)}
+.roomsbtn svg{display:block}
+.rrow{display:flex;align-items:center;gap:10px;background:#0f1115;border:1px solid #2a2f3a;border-radius:10px;padding:10px 12px;margin:8px 0}
+.rdot{width:10px;height:10px;border-radius:50%;background:#22c55e;flex:none}
+.rname{flex:1;font-family:Consolas,monospace;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modal .watch{background:#4f7cff;color:#fff}
+.modal .fulllink{color:#9db4ff;font-size:13px;text-decoration:none;align-self:center;margin-right:auto}
+#roomsempty{color:#8b93a7;font-size:13px;padding:12px 2px}
+#leaveov{z-index:40}
+.modal .leavewarn{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.4);border-radius:10px;padding:10px 12px;font-size:13px;margin:4px 0 6px}
+.modal .leavewarn b{color:#f87171}
+.modal .stopall{background:#ef4444;color:#fff}

@@ -150,7 +150,8 @@ core/turn.py       minimal TURN/UDP relay (RFC 5766 subset, stdlib only)
 core/gui.py        Tkinter control panel
 www/shared.css     stage theme shared by Sharer/Viewer
 www/shared.js      stage helpers (toast, fullscreen, room parsing, autoplay…)
-www/               pages (index.html, Sharer.html, Viewer.html)
+www/               pages + per-page assets (index, Sharer, Viewer,
+                   myshares — each as .html + .css + .js)
 ```
 
 ## Configuration
