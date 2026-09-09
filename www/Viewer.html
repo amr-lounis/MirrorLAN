@@ -21,7 +21,7 @@
 const remoteV = $('remote');
 let pc = null, vid = null, pollTimer = null, offerAt = 0, waitShown = false;
 let retryTimer = null, retryCount = 0, autoRetry = false;
-let watchdogTimer = null;
+let watchdogTimer = null, mutedHint = false;
 const WATCHDOG_MS = 30000; // waiting for the first answer with no recovery =
 // black forever (lost offer, wiped server, failed serve). Restart the cycle.
 
@@ -65,6 +65,23 @@ function scheduleRetry(){
 function makeId(){ return 'v-' + Math.random().toString(36).slice(2,8); }
 log('room: ' + (ROOM || '(default)'));
 
+function hasAudio(){
+  try{
+    const s = remoteV.srcObject;
+    return !!(s && s.getAudioTracks && s.getAudioTracks().length);
+  }catch(e){ return false; }
+}
+function checkMutedHint(){
+  // Picture is here but the phone muted it: say so, or silence looks broken.
+  if(remoteV.muted && hasAudio() && remoteV.srcObject){
+    mutedHint = true;
+    showToast('muted — tap video for sound');
+  }
+}
+function clearMutedHint(){
+  if(mutedHint){ mutedHint = false; hideToast(); }
+}
+
 async function watch(keepVid){
   cancelRetry();
   cancelWatchdog();
@@ -78,7 +95,15 @@ async function watch(keepVid){
     const myPc = pc; // ignore late events from a previous connection
     pc.addTransceiver('video', { direction: 'recvonly' });
     pc.addTransceiver('audio', { direction: 'recvonly' });
-    pc.ontrack = e => { if(e.streams[0] && pc === myPc){ remoteV.srcObject = e.streams[0]; playWithSound(remoteV); } };
+    pc.ontrack = e => { if(e.streams[0] && pc === myPc){
+      remoteV.srcObject = e.streams[0];
+      const s = e.streams[0];
+      let av = 0, vv = 0;
+      try{ av = s.getAudioTracks().length; vv = s.getVideoTracks().length; }catch(err){}
+      log('tracks: ' + vv + ' video + ' + av + ' audio');
+      playWithSound(remoteV);
+      setTimeout(checkMutedHint, 600);
+    } };
     pc.onconnectionstatechange = () => {
       if(pc !== myPc) return;
       const s = myPc.connectionState;
@@ -131,11 +156,14 @@ async function watch(keepVid){
 remoteV.onclick = () => {
   // Tap the video to restore sound after a muted fallback.
   if(remoteV.muted && remoteV.srcObject) playWithSound(remoteV);
+  clearMutedHint();
 };
+try{ remoteV.addEventListener('volumechange', () => { if(!remoteV.muted) clearMutedHint(); }); }catch(e){}
 
 function cleanupConn(){
   if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
   cancelWatchdog();
+  mutedHint = false;
   hideToast();
   if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM}), keepalive: true }).catch(()=>{}); }catch(e){} }
   if(pc){ try{ pc.onconnectionstatechange = null; pc.ontrack = null; pc.close(); }catch(e){} pc = null; }

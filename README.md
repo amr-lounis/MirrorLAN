@@ -69,7 +69,7 @@ Share a full display through the browser picker (`Entire Screen` tab):
 Behavior:
 
 - **Frame rate**: requested at ~15 fps (up to 30) — smooth enough for demos and docs while staying light on the LAN.
-- **Audio**: system audio is requested when the browser allows it; if the browser refuses audio, sharing continues video-only automatically.
+- **Audio**: system audio is requested when the browser allows it; if the browser refuses audio, sharing continues video-only automatically. The sharer page shows a green dot (top-left) when an audio track is really captured, gray when video-only — so check it first if the viewer hears nothing. On the viewer side, phones may start muted: a "tap video for sound" hint appears, tap once to unmute.
 - **Cursor**: the mouse pointer is part of the capture, as rendered by the OS.
 - **Viewer count**: the badge on the sharer page shows live WebRTC connections.
 - **Stop**: red stop button, the browser's own "Stop sharing" control, or just close the tab — the room is freed immediately (closing the tab also notifies the server, otherwise the room drops after ~15 s of missed heartbeats).
