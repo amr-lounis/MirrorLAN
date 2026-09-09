@@ -6,7 +6,7 @@ http://localhost, so sharing works from this PC; LAN devices can watch.
 
 Usage:
     python main.py              launch GUI (port, Start/Stop, copy addresses)
-    python main.py --serve      run headless server (default port 8080)
+    python main.py --serve      run headless server (default port 80)
     python main.py --serve 8081 run headless server on custom port
     python main.py --serve 8081 --dir ./site   serve another folder
     python main.py --serve --turn-port 0       disable the TURN relay

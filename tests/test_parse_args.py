@@ -9,12 +9,12 @@ class TestParseArgs(unittest.TestCase):
     def test_default_is_gui(self):
         mode, config = parse_args([])
         self.assertEqual(mode, "gui")
-        self.assertEqual(config.port, 8080)
+        self.assertEqual(config.port, 80)
 
     def test_serve_default_port(self):
         mode, config = parse_args(["--serve"])
         self.assertEqual(mode, "serve")
-        self.assertEqual(config.port, 8080)
+        self.assertEqual(config.port, 80)
 
     def test_serve_positional_port(self):
         mode, config = parse_args(["--serve", "8081"])

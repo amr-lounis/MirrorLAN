@@ -37,7 +37,7 @@ class Config:
     # Plain HTTP only (no TLS). Consequence, by browser design: screen
     # capture works solely from http://localhost on the sharing PC;
     # other LAN devices can watch but not share.
-    port: int = 8080
+    port: int = 80
     turn_port: int = 3478  # TURN/UDP relay fallback (0 = disabled)
     turn_realm: str = "MirrorLAN"
     www_dir: str = field(default_factory=lambda: _resource("www"))

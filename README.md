@@ -18,8 +18,8 @@ It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over plain HTTP and
 
 ## How it works
 
-1. The **sharer** opens `http://localhost:8080/` **on the sharing PC itself**, types a room name, and presses **Share** — the page captures the screen/window and sends a heartbeat so the room stays listed as live.
-2. A **viewer** on another device opens `http://<LAN-IP>:8080/`, sees the live room, and presses **Watch** — the page posts a WebRTC offer to `/api/offer`.
+1. The **sharer** opens `http://localhost/` **on the sharing PC itself**, types a room name, and presses **Share** — the page captures the screen/window and sends a heartbeat so the room stays listed as live.
+2. A **viewer** on another device opens `http://<LAN-IP>/`, sees the live room, and presses **Watch** — the page posts a WebRTC offer to `/api/offer`.
 3. The sharer claims the offer (`/api/claim`), replies with an answer (`/api/answer`), and the viewer picks it up.
 4. Video/audio then flows **directly browser-to-browser** (WebRTC peer connection) — the server only relays the signaling, it never sees the media. When the direct path cannot form (see [mDNS / black screen](#phone-shows-a-black-screen-pc-works)), both pages automatically fall back to the built-in TURN relay on UDP `3478`: relay candidates carry the server's literal IP, so no multicast DNS is needed. Relayed media stays DTLS-SRTP encrypted end-to-end — the server forwards opaque packets it cannot decrypt.
 
@@ -38,7 +38,7 @@ Open the app, pick a port, and press **Start Server**. Copy one of the LAN addre
 
 ### 2. Create a room
 
-On the sharing PC, open `http://localhost:8080/` in a browser, type a room name, set **Max viewers** (1–99, default 1), and press **Share**.
+On the sharing PC, open `http://localhost/` in a browser, type a room name, set **Max viewers** (1–99, default 1), and press **Share**.
 
 ![New room](readme/rooms-new.JPG)
 
@@ -112,7 +112,7 @@ Behavior:
 # Launch the GUI (port, Start/Stop, copy addresses)
 python main.py
 
-# Headless server on default port 8080
+# Headless server on default port 80
 python main.py --serve
 
 # Headless server on a custom port
@@ -124,7 +124,7 @@ python main.py --serve 8081 --dir ./site
 
 Headless mode prints the LAN addresses to the console.
 
-Share from `http://localhost:8080/` on the sharing PC. Other devices on the same network open `http://<LAN-IP>:8080/` (or your custom port) and press **Watch** — watching works from anywhere on the LAN, sharing only from localhost.
+Share from `http://localhost/` on the sharing PC. Other devices on the same network open `http://<LAN-IP>/` (or your custom port) and press **Watch** — watching works from anywhere on the LAN, sharing only from localhost.
 
 GUI buttons:
 
@@ -159,7 +159,7 @@ Defaults live in `core/config.py`:
 
 | Setting | Default | Notes |
 |---|---|---|
-| `port` | `8080` | plain-HTTP listener (ports < 1024 need admin on Windows) |
+| `port` | `80` | plain-HTTP listener (ports < 1024 need admin on Windows) |
 | `turn_port` | `3478` | TURN/UDP relay listener (`0` = disabled) |
 | `turn_realm` | `MirrorLAN` | TURN auth realm |
 | `www_dir` | `www/` | served folder |
@@ -191,12 +191,12 @@ LAN-trust model — anyone on your local network with the URL can create and wat
 
 ## Troubleshooting
 
-- **Ports below 1024 need admin** — the default `8080` needs none; run as administrator only for ports like `80`.
+- **Ports below 1024 need admin** — the default `80` needs administrator/root; use a port like `8080` to run without elevation.
 - **Windows Firewall prompt** on first start — allow access for private networks so other devices can connect.
 - **Page errors right after an update (e.g. `X is not defined`)** — stale cached `shared.js`: the server sends `Cache-Control: no-cache` on all pages/scripts/styles so browsers always revalidate; if it still happens, hard-refresh with `Ctrl+Shift+R` (or `Cmd+Shift+R` on Mac).
 - **"Cannot bind port"** — another app uses the port; pick a different one.
 - **Room stays listed after closing** — it drops automatically after ~15 s of missed heartbeats.
-- **Share button says capture is blocked** — expected on `http://LAN-IP`: open the page as `http://localhost:8080/` on the sharing PC itself.
+- **Share button says capture is blocked** — expected on `http://LAN-IP`: open the page as `http://localhost/` on the sharing PC itself.
 
 ### Phone shows a black screen (PC works)
 
@@ -206,7 +206,7 @@ LAN-trust model — anyone on your local network with the URL can create and wat
 4. **Check the sharer page viewer count** after pressing Watch on the phone:
    - Count goes up but still black → the video path is blocked: disable **AP/client isolation** (or "guest mode") on the router, or try another phone/hotspot.
    - Count stays 0 → the phone never reached the server: recheck steps 1–2 and the IP address.
-   - Log stops after `connected - receiving screen` with no `connection:` lines at all → the device gathered zero ICE candidates (UDP blocked at OS level: firewall, antivirus, VPN, or proxy — hits every browser equally). The viewer log says `offer sent (0 local candidates)` in that case; open `http://<LAN-IP>:8080/api/diag` from any device to confirm.
+   - Log stops after `connected - receiving screen` with no `connection:` lines at all → the device gathered zero ICE candidates (UDP blocked at OS level: firewall, antivirus, VPN, or proxy — hits every browser equally). The viewer log says `offer sent (0 local candidates)` in that case; open `http://<LAN-IP>/api/diag` from any device to confirm.
    - Log shows `conn=new/ice=new` and every candidate ends with `.local` → multicast DNS is blocked (browsers hide LAN IPs behind mDNS, each side must resolve the other's `*.local` over UDP 5353). The built-in TURN relay now covers this automatically: look for `turn: … (relay fallback ready)` and `typ relay` candidates in the log — the relay path needs only UDP `3478` to the server, no mDNS at all. If the log says `turn unavailable`, check the server console/GUI for `(turn relay off)` and free UDP port `3478` (or set `--turn-port`). Manual fallback (diagnostic): on **BOTH** browsers open `edge://flags` (or `chrome://flags`), switch off **"Anonymize local IPs exposed by WebRTC"**, relaunch — candidates become literal `192.168.x.x`. If it stays black with literal IPs on both sides and the log moves to `ice: checking → failed`, the culprit is plain UDP blocking (firewall/AP isolation) instead — the relay path should still connect; otherwise allow inter-client UDP or keep both devices on the same AP/band.
 5. **No sound on the phone** — use the volume slider at the bottom of the viewer page (a no-sound badge means the shared source itself has no audio).
 
