@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>MirrorLAN — Viewer</title>
-<link rel="stylesheet" href="shared.css?v=3">
+<link rel="stylesheet" href="shared.css">
 <style>input.vol{width:110px;align-self:center;accent-color:#4f7cff;cursor:pointer}
 button.ghost{background:rgba(255,255,255,.15);color:#cfd6e4;cursor:default}
 .stat{position:absolute;top:calc(10px + env(safe-area-inset-top));left:14px;max-width:70vw;background:rgba(0,0,0,.65);color:#fff;font-size:13px;padding:8px 14px;border-radius:999px;display:none;z-index:5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}</style>
@@ -23,14 +23,11 @@ button.ghost{background:rgba(255,255,255,.15);color:#cfd6e4;cursor:default}
 <button id="full" title="Fullscreen" aria-label="Fullscreen"></button>
 </div>
 </div>
-<script src="shared.js?v=3"></script>
+<script src="shared.js"></script>
 <script>
-if(typeof SHARED_V === 'undefined' || SHARED_V < 3){
-  document.body.innerHTML = '<div style="background:#0f1115;color:#eef1f6;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center;max-width:440px;padding:24px"><h2>Page outdated</h2><p>This page loaded old cached files. Hard-refresh: Ctrl+Shift+R (Windows/Linux) or Cmd+Shift+R (Mac).</p></div></div>';
-  throw new Error('stale cached shared.js (need v3)');
-}
 const remoteV = $('remote');
 let pc = null, vid = null, pollTimer = null, offerAt = 0;
+let statTimer = null;
 let roomLive = null, roomLiveAt = 0;
 let retryTimer = null, retryCount = 0, autoRetry = false;
 let watchdogTimer = null;
@@ -76,6 +73,73 @@ function scheduleRetry(){
 
 function makeId(){ return 'v-' + Math.random().toString(36).slice(2,8); }
 log('room: ' + (ROOM || '(default)'));
+try{ log('viewer UA: ' + navigator.userAgent.slice(0, 120)); }catch(e){}
+
+// ---- extra media diagnostics (black-screen cases) ----
+function logVideoState(tag){
+  try{
+    const s = remoteV.srcObject;
+    let ti = 'no-stream';
+    if(s){
+      try{
+        ti = s.getTracks().map(t => t.kind + ':' + t.readyState + (t.muted ? '(muted)' : '') + (t.enabled ? '' : '(disabled)')).join(',');
+      }catch(e){ ti = 'tracks?'; }
+    }
+    log('video[' + tag + '] rs=' + remoteV.readyState + ' paused=' + remoteV.paused
+      + ' muted=' + remoteV.muted + ' ' + remoteV.videoWidth + 'x' + remoteV.videoHeight
+      + ' t=' + (Math.round(remoteV.currentTime * 10) / 10) + 's tracks=[' + ti + ']');
+  }catch(e){}
+}
+['loadedmetadata','playing','waiting','stalled','pause','emptied','error','suspend'].forEach(ev => {
+  try{ remoteV.addEventListener(ev, () => logVideoState(ev)); }catch(e){}
+});
+
+// Samples inbound-rtp stats after the answer: proves whether RTP bytes
+// actually flow. Signaling can succeed (offer/answer exchanged, ontrack
+// fired) while UDP is blocked (AP isolation / firewall / VPN) — then
+// bytesReceived stays 0 and the screen stays black forever.
+function watchMediaStats(myPc, myVid){
+  try{ if(statTimer){ clearInterval(statTimer); statTimer = null; } }catch(e){}
+  let runs = 0;
+  const sample = async () => {
+    if(!myPc || pc !== myPc) return;
+    runs++;
+    try{
+      const stats = await myPc.getStats();
+      let inbound = null, pair = null;
+      stats.forEach(r => {
+        if(!inbound && r.type === 'inbound-rtp' && !r.isRemote && (r.kind === 'video' || r.mediaType === 'video')) inbound = r;
+        if(r.type === 'candidate-pair' && (r.selected || r.state === 'succeeded')) pair = r;
+      });
+      if(inbound){
+        log('stats[' + myVid + '] bytes=' + (inbound.bytesReceived || 0)
+          + ' frames=' + (inbound.framesDecoded || 0)
+          + ' dropped=' + (inbound.framesDropped || 0)
+          + ' lost=' + (inbound.packetsLost || 0)
+          + ' jitter=' + (inbound.jitter !== undefined ? Math.round(inbound.jitter * 1000) : '?') + 'ms'
+          + ' conn=' + myPc.connectionState + '/' + myPc.iceConnectionState);
+        if(runs >= 2 && (inbound.bytesReceived || 0) === 0){
+          showToast('connected but no video data — check same Wi-Fi / AP isolation / VPN');
+          log('WARNING: 0 bytes received - UDP media blocked? (AP isolation/firewall/VPN)');
+          logRemoteCands();
+        }
+      }else{
+        log('stats[' + myVid + '] no inbound-rtp yet (conn=' + myPc.connectionState + '/' + myPc.iceConnectionState + ')');
+      }
+      if(pair){
+        try{
+          log('pair: ' + (pair.localCandidateId || '?') + ' -> ' + (pair.remoteCandidateId || '?')
+            + ' state=' + (pair.state || pair.writeState || '?'));
+        }catch(e){}
+      }
+      logVideoState('stats' + runs);
+    }catch(e){ log('stats error: ' + (e && e.message)); }
+    if(runs >= 4){ try{ clearInterval(statTimer); statTimer = null; }catch(e){} }
+  };
+  setTimeout(sample, 3000);
+  try{ statTimer = setInterval(sample, 5000); }catch(e){}
+}
+function cancelStats(){ try{ if(statTimer){ clearInterval(statTimer); statTimer = null; } }catch(e){} }
 
 async function refreshRoomLive(){
   // Is our room actually live on the server? Cached 10s. null = unknown
@@ -166,16 +230,32 @@ async function watch(keepVid){
     pc.ontrack = e => { if(e.streams[0] && pc === myPc){
       remoteV.srcObject = e.streams[0];
       const s = e.streams[0];
-      let av = 0, vv = 0;
+      let av = 0, vv = 0, detail = '';
       try{ av = s.getAudioTracks().length; vv = s.getVideoTracks().length; }catch(err){}
-      log('tracks: ' + vv + ' video + ' + av + ' audio');
+      try{
+        detail = s.getTracks().map(t => {
+          t.onmute = () => log('track ' + t.kind + ' muted');
+          t.onunmute = () => log('track ' + t.kind + ' unmuted');
+          t.onended = () => log('track ' + t.kind + ' ended');
+          return t.kind + ':' + t.readyState + (t.muted ? '(muted)' : '');
+        }).join(',');
+      }catch(err){}
+      log('tracks: ' + vv + ' video + ' + av + ' audio [' + detail + ']');
+      logVideoState('ontrack');
       playWithSound(remoteV);
       paintAudioUi();
     } };
+    pc.onicegatheringstatechange = () => { if(pc === myPc) log('ice-gathering: ' + myPc.iceGatheringState); };
+    pc.oniceconnectionstatechange = () => {
+      if(pc !== myPc) return;
+      log('ice: ' + myPc.iceConnectionState);
+      if(myPc.iceConnectionState === 'failed') logRemoteCands();
+    };
+    pc.onsignalingstatechange = () => { if(pc === myPc) log('signaling: ' + myPc.signalingState); };
     pc.onconnectionstatechange = () => {
       if(pc !== myPc) return;
       const s = myPc.connectionState;
-      log('connection: ' + s);
+      log('connection: ' + s + ' (ice=' + myPc.iceConnectionState + ')');
       if(s === 'connected'){ retryCount = 0; cancelRetry(); cancelWatchdog(); hideToast(); setStat(null); }
       else if(s === 'disconnected' || s === 'failed' || s === 'closed'){
         if(s === 'failed'){ setStat('connection failed — retrying…'); logRemoteCands(); }
@@ -210,8 +290,13 @@ async function watch(keepVid){
             clearInterval(pollTimer); pollTimer = null;
             cancelWatchdog();
             hideToast();
+            const remCands = countCands(data.sdp);
+            log('answer received (' + remCands + ' remote candidates)');
+            if(remCands === 0) showToast('sharer has no network path — check its network/VPN');
             await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
-            log('connected - receiving screen');
+            log('connected - receiving screen (conn=' + pc.connectionState + '/ice=' + pc.iceConnectionState + ')');
+            logVideoState('answer');
+            watchMediaStats(pc, vid);
             return;
           }
         }
@@ -237,6 +322,7 @@ async function watch(keepVid){
 function cleanupConn(){
   if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
   cancelWatchdog();
+  cancelStats();
   hideToast();
   setStat(null);
   if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM}), keepalive: true }).catch(()=>{}); }catch(e){} }

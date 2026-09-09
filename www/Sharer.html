@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>MirrorLAN — Sharer</title>
-<link rel="stylesheet" href="shared.css?v=3">
+<link rel="stylesheet" href="shared.css">
 <style>:root{--btn:rgba(34,197,94,.9);--btn-fg:#000}
 .aud{position:absolute;top:calc(14px + env(safe-area-inset-top));left:14px;width:12px;height:12px;border-radius:50%;background:rgba(255,255,255,.25);z-index:5}</style>
 </head>
@@ -20,12 +20,8 @@
 <button id="full" class="blue" title="Fullscreen" aria-label="Fullscreen"></button>
 </div>
 </div>
-<script src="shared.js?v=3"></script>
+<script src="shared.js"></script>
 <script>
-if(typeof SHARED_V === 'undefined' || SHARED_V < 3){
-  document.body.innerHTML = '<div style="background:#0f1115;color:#eef1f6;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center;max-width:440px;padding:24px"><h2>Page outdated</h2><p>This page loaded old cached files. Hard-refresh: Ctrl+Shift+R (Windows/Linux) or Cmd+Shift+R (Mac).</p></div></div>';
-  throw new Error('stale cached shared.js (need v3)');
-}
 const preview = $('preview');
 let screenStream = null, pcs = {}, pollTimer = null, starting = false, netFails = 0;
 
@@ -104,12 +100,19 @@ async function pollOffers(){
 
 async function serveViewer(id, offerSdp){
   try{
+    const offCands = countCands(offerSdp);
+    log('offer from ' + id + ' (' + offCands + ' remote cands)');
     const pc = new RTCPeerConnection({ iceServers: [] }); // LAN only, offline
     pcs[id] = pc;
     screenStream.getTracks().forEach(t => pc.addTrack(t, screenStream));
+    pc.oniceconnectionstatechange = () => {
+      if(pcs[id] !== pc) return;
+      log('viewer ' + id + ' ice: ' + pc.iceConnectionState);
+    };
     pc.onconnectionstatechange = () => {
       updateViewers();
       const s = pc.connectionState;
+      log('viewer ' + id + ' connection: ' + s + ' (ice=' + pc.iceConnectionState + ')');
       if(s === 'failed') log('viewer ' + id + ' failed - check same network');
       if(s === 'closed' || s === 'disconnected' || s === 'failed'){
         // 'closed' = deliberate leave -> drop at once so the slot frees immediately.

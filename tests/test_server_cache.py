@@ -27,7 +27,7 @@ class TestCacheControl(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.files = {
             "index.html": b"<html>rooms</html>",
-            "shared.js": b"const SHARED_V = 3;",
+            "shared.js": b"const $ = id => document.getElementById(id);",
             "shared.css": b"body{}",
             "notes.txt": b"plain text",
         }
@@ -57,12 +57,12 @@ class TestCacheControl(unittest.TestCase):
         self.assertEqual(body, self.files["index.html"])
 
     def test_js_is_no_cache(self):
-        status, cache, _ = _get(self.port, "/shared.js?v=3")
+        status, cache, _ = _get(self.port, "/shared.js")
         self.assertEqual(status, 200)
         self.assertEqual(cache, "no-cache")
 
     def test_css_is_no_cache(self):
-        status, cache, _ = _get(self.port, "/shared.css?v=3")
+        status, cache, _ = _get(self.port, "/shared.css")
         self.assertEqual(status, 200)
         self.assertEqual(cache, "no-cache")
 

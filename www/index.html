@@ -43,12 +43,8 @@ input:focus{outline:none;border-color:#4f7cff}
 <input id="maxv" class="num" type="number" min="1" max="99" value="1" inputmode="numeric">
 </div>
 </div>
-<script src="shared.js?v=3"></script>
+<script src="shared.js"></script>
 <script>
-if(typeof SHARED_V === 'undefined' || SHARED_V < 3){
-  document.body.innerHTML = '<div style="background:#0f1115;color:#eef1f6;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center;max-width:440px;padding:24px"><h2>Page outdated</h2><p>This page loaded old cached files. Hard-refresh: Ctrl+Shift+R (Windows/Linux) or Cmd+Shift+R (Mac).</p></div></div>';
-  throw new Error('stale cached shared.js (need v3)');
-}
 async function refresh(){
   try{
     const r = await fetch('api/rooms');

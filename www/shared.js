@@ -1,10 +1,36 @@
 /* MirrorLAN shared helpers: stage pages (Sharer/Viewer) + room-name validation.
- * Bump SHARED_V and the ?v= params in the pages whenever this file's API changes,
- * so browsers never run new pages against a stale cached copy. */
-const SHARED_V = 3;
+ * Freshness is enforced by the server (Cache-Control: no-cache on
+ * html/js/css), so no ?v= cache-busters are needed. */
 const $ = id => document.getElementById(id);
 
-function log(t){ console.log(t); }
+// Ring buffer of recent logs + optional on-screen panel (?debug=1).
+// Phones with a black screen can't open devtools, so ?debug=1 shows the
+// same lines on the page itself (e.g. Viewer.html?room=n&debug=1).
+window.__mlLogs = window.__mlLogs || [];
+const DEBUG = (() => { try{ return new URLSearchParams(location.search).has('debug'); }catch(e){ return false; } })();
+function _paintDbg(t){
+  try{
+    let el = document.getElementById('dbg');
+    if(!el && DEBUG){
+      el = document.createElement('div');
+      el.id = 'dbg';
+      el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:76px;max-height:38vh;overflow:auto;'
+        + 'background:rgba(0,0,0,.82);color:#9fe8b8;font:11px/1.5 Consolas,monospace;'
+        + 'padding:8px 10px;border-radius:10px;z-index:50;white-space:pre-wrap;word-break:break-word';
+      document.body.appendChild(el);
+    }
+    if(el){ el.textContent += t + '\n'; el.scrollTop = el.scrollHeight; }
+  }catch(e){}
+}
+function log(t){
+  try{
+    const line = new Date().toISOString().slice(11, 19) + ' ' + t;
+    window.__mlLogs.push(line);
+    if(window.__mlLogs.length > 200) window.__mlLogs.shift();
+    console.log(line);
+    _paintDbg(line);
+  }catch(e){ try{ console.log(t); }catch(_){} }
+}
 
 // Current room from ?room= (lowercased, charset-checked, "" = default room).
 const ROOM = ((new URLSearchParams(location.search).get('room') || '').toLowerCase().match(/^[a-z0-9\-_]{0,32}$/) || [''])[0];
@@ -28,7 +54,18 @@ function hideToast(){ const el = document.getElementById('toast'); if(el) el.sty
 // try with sound first, fall back to muted so the picture always shows.
 function playWithSound(video){
   video.muted = false;
-  video.play().catch(() => { video.muted = true; video.play().catch(()=>{}); });
+  try{
+    const p = video.play();
+    if(p && p.then) p.then(() => {
+      try{ log('video playing ' + video.videoWidth + 'x' + video.videoHeight + (video.muted ? ' (muted)' : ' (sound)')); }catch(e){}
+    }).catch(() => {
+      video.muted = true;
+      log('autoplay with sound blocked - muted fallback');
+      video.play().then(() => {
+        try{ log('video playing ' + video.videoWidth + 'x' + video.videoHeight + ' (muted)'); }catch(e){}
+      }).catch(()=>{ log('video play failed (muted too)'); });
+    });
+  }catch(e){ log('video play threw: ' + (e && e.message)); }
 }
 
 // Fullscreen toggle button with iOS fallback (CSS-class based, no Fullscreen API).
