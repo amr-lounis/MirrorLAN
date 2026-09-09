@@ -6,6 +6,7 @@ Usage:
     python main.py --serve      run headless server (default port 443)
     python main.py --serve 8443 run headless server on custom port
     python main.py --serve 8443 --dir ./site   serve another folder
+    python main.py --serve --turn-port 0       disable the TURN relay
 
 Layout:
     core/config.py     all settings in one Config dataclass
@@ -52,6 +53,8 @@ def parse_args(argv: list) -> tuple:
             config.https_port = int(rest.pop(0))
         elif flag == "--http-port" and rest:
             config.http_port = int(rest.pop(0))
+        elif flag == "--turn-port" and rest:
+            config.turn_port = int(rest.pop(0))
         else:
             raise ValueError("unknown argument: %s" % flag)
     config.validate()
@@ -76,6 +79,10 @@ def run_headless(config: Config) -> int:
     _say("serving %s" % config.www_dir)
     for url in urls:
         _say(url + " (http redirects here)")
+    if manager.turn_ok and manager.turn is not None:
+        _say("turn relay on udp :%d" % manager.turn.bound_port)
+    elif config.turn_port:
+        _say("turn relay off (%s)" % (manager.turn_error or "bind failed"))
     try:
         threading.Event().wait()
     except KeyboardInterrupt:

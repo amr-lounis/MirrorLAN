@@ -101,8 +101,8 @@ async function pollOffers(){
 async function serveViewer(id, offerSdp){
   try{
     const offCands = countCands(offerSdp);
-    log('offer from ' + id + ' (' + offCands + ' remote cands)');
-    const pc = new RTCPeerConnection({ iceServers: [] }); // LAN only, offline
+    log('offer from ' + id + ' (' + offCands + ' remote, ' + relayCount(offerSdp) + ' relay cands)');
+    const pc = new RTCPeerConnection({ iceServers: await getIceServers() }); // LAN only, relay fallback
     pcs[id] = pc;
     screenStream.getTracks().forEach(t => pc.addTrack(t, screenStream));
     pc.oniceconnectionstatechange = () => {
@@ -143,7 +143,7 @@ async function serveViewer(id, offerSdp){
     const ansCands = countCands(ansSdp);
     await fetch('api/answer', { method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ id, sdp: ansSdp, room: ROOM, cands: ansCands }) });
-    log('serving viewer ' + id + ' (' + ansCands + ' local candidates)');
+    log('serving viewer ' + id + ' (' + ansCands + ' local, ' + relayCount(ansSdp) + ' relay candidates)');
     if(mdnsOnly(offerSdp) && mdnsOnly(ansSdp))
       log('viewer ' + id + ' mDNS-only both ends - needs UDP 5353 multicast');
     else if(mdnsOnly(ansSdp))

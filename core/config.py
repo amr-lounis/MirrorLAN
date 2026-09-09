@@ -37,6 +37,8 @@ class Config:
 
     https_port: int = 443
     http_port: int = 80
+    turn_port: int = 3478  # TURN/UDP relay fallback (0 = disabled)
+    turn_realm: str = "MirrorLAN"
     www_dir: str = field(default_factory=lambda: _resource("www"))
     cert_file: str = field(default_factory=lambda: os.path.join(APP_DIR, "cert.pem"))
     key_file: str = field(default_factory=lambda: os.path.join(APP_DIR, "key.pem"))
@@ -54,6 +56,8 @@ class Config:
             port = getattr(self, name)
             if not isinstance(port, int) or not 1 <= port <= 65535:
                 raise ValueError("%s must be 1-65535, got %r" % (name, port))
+        if not isinstance(self.turn_port, int) or not 0 <= self.turn_port <= 65535:
+            raise ValueError("turn_port must be 0-65535, got %r" % (self.turn_port,))
         if self.max_sdp_len <= 0 or self.max_id_len <= 0 or self.max_room_len <= 0:
             raise ValueError("limits must be positive")
         if self.sharer_timeout <= 0:

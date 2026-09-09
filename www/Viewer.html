@@ -295,7 +295,7 @@ async function watch(keepVid){
   if(!keepVid || !vid){ vid = makeId(); retryCount = 0; mediaFails = 0; }
   log('connecting as ' + vid + ' ...');
   try{
-    pc = new RTCPeerConnection({ iceServers: [] }); // LAN only
+    pc = new RTCPeerConnection({ iceServers: await getIceServers() }); // LAN only, relay fallback
     const myPc = pc; // ignore late events from a previous connection
     pc.addTransceiver('video', { direction: 'recvonly' });
     pc.addTransceiver('audio', { direction: 'recvonly' });
@@ -351,7 +351,7 @@ async function watch(keepVid){
     logSdpSummary(mySdp, 'offer');
     await fetch('api/offer', { method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ id: vid, sdp: mySdp, room: ROOM, cands: myCands }) });
-    log('offer sent (' + myCands + ' local candidates), waiting for server answer...');
+    log('offer sent (' + myCands + ' local, ' + relayCount(mySdp) + ' relay candidates), waiting for server answer...');
     if(myCands === 0) showToast('no network path — UDP may be blocked on this device');
     offerAt = Date.now();
     roomLive = null; roomLiveAt = 0;
@@ -365,7 +365,7 @@ async function watch(keepVid){
             cancelWatchdog();
             hideToast();
             const remCands = countCands(data.sdp);
-            log('answer received (' + remCands + ' remote candidates)');
+            log('answer received (' + remCands + ' remote, ' + relayCount(data.sdp) + ' relay candidates)');
             if(remCands === 0) showToast('sharer has no network path — check its network/VPN');
             logSdpSummary(data.sdp, 'answer');
             remMdns = mdnsOnly(data.sdp);

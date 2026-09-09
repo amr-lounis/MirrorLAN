@@ -31,6 +31,15 @@ class TestParseArgs(unittest.TestCase):
         self.assertEqual(config.http_port, 8080)
         self.assertTrue(config.www_dir.endswith("site"))
 
+    def test_turn_port_flag(self):
+        mode, config = parse_args(["--serve", "--turn-port", "3479"])
+        self.assertEqual(mode, "serve")
+        self.assertEqual(config.turn_port, 3479)
+        mode, config = parse_args(["--serve", "--turn-port", "0"])
+        self.assertEqual(config.turn_port, 0)  # 0 = relay disabled
+        with self.assertRaises(ValueError):
+            parse_args(["--serve", "--turn-port", "99999"])
+
     def test_unknown_flag_rejected(self):
         with self.assertRaises(ValueError):
             parse_args(["--bogus"])

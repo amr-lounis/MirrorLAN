@@ -55,6 +55,29 @@ function mdnsOnly(sdp){
   const c = candLines(sdp);
   return c.length > 0 && c.every(l => l.indexOf('.local') >= 0);
 }
+// Relay candidates gathered through the built-in TURN server (literal server
+// IP — no mDNS involved). Any number > 0 means the black-screen-proof path
+// is available even when multicast DNS is blocked on the LAN.
+function relayCount(sdp){
+  return candLines(sdp).filter(l => l.indexOf('typ relay') >= 0).length;
+}
+// TURN relay credentials from the server, or [] when the relay is down.
+// Called before creating the peer connection; failure always falls back to
+// plain host candidates so nothing breaks when TURN is disabled/offline.
+async function getIceServers(){
+  try{
+    const r = await fetch('api/turn');
+    if(r.ok){
+      const t = await r.json();
+      if(t && t.urls && t.username && t.credential){
+        log('turn: ' + t.urls + ' (relay fallback ready)');
+        return [{urls: t.urls, username: t.username, credential: t.credential}];
+      }
+    }
+  }catch(e){}
+  log('turn unavailable - host candidates only');
+  return [];
+}
 
 // Small status pill (#toast). No-op on pages without one.
 function showToast(t){ const el = document.getElementById('toast'); if(!el) return; el.textContent = t; el.style.display = 'block'; }

@@ -174,6 +174,7 @@ class ServerGui:
         self._rebuild_rows(urls)
         self._set_running(True)
         note = "" if self.manager.redirect_ok else " (http redirect off)"
+        note += "" if self.manager.turn_ok else " (turn relay off)"
         self.say("Serving ./www on port %s%s." % (raw, note), GREEN)
 
     def stop(self) -> None:

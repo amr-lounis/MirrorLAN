@@ -10,6 +10,7 @@ It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over TLS, redirects
 
 - HTTPS static file server + HTTP → HTTPS redirect
 - WebRTC signaling API (offers, answers, rooms, sharer heartbeat)
+- Built-in TURN/UDP relay (stdlib only) — automatic fallback when direct browser-to-browser media is blocked (mDNS filtered, AP isolation, VPN); pages use it with zero setup
 - Tkinter GUI: pick a port, Start/Stop, copy LAN addresses
 - Self-signed certs (stdlib only, SANs for LAN IPs)
 - Single-file Windows build via PyInstaller (`build.bat`)
@@ -19,7 +20,7 @@ It serves the pages in `www/` (`Sharer.html`, `Viewer.html`) over TLS, redirects
 1. The **sharer** opens `https://<server>/`, types a room name, and presses **Share** — the page captures the screen/window and sends a heartbeat so the room stays listed as live.
 2. A **viewer** on another device opens the same address, sees the live room, and presses **Watch** — the page posts a WebRTC offer to `/api/offer`.
 3. The sharer claims the offer (`/api/claim`), replies with an answer (`/api/answer`), and the viewer picks it up.
-4. Video/audio then flows **directly browser-to-browser** (WebRTC peer connection) — the server only relays the signaling, it never sees the media.
+4. Video/audio then flows **directly browser-to-browser** (WebRTC peer connection) — the server only relays the signaling, it never sees the media. When the direct path cannot form (see [mDNS / black screen](#phone-shows-a-black-screen-pc-works)), both pages automatically fall back to the built-in TURN relay on UDP `3478`: relay candidates carry the server's literal IP, so no multicast DNS is needed. Relayed media stays DTLS-SRTP encrypted end-to-end — the server forwards opaque packets it cannot decrypt.
 
 Rooms are in-memory only: a room disappears ~15 s after the sharer closes the page (missed heartbeats), and everything is cleared on server restart. Room names allow `a-z 0-9 - _` only, max 32 chars. Signaling is lightweight polling (1 s ticks, keep-alive connections) — typical join takes ~1–2 s. Unclaimed offers and undelivered answers expire after 90 s so crashed viewers never clog the queue; live viewers refresh automatically.
 
@@ -146,6 +147,7 @@ core/certs.py      self-signed ECDSA certificates + ensure_default_cert (stdlib 
 core/net.py        local IPs and public URLs
 core/signaling.py  thread-safe viewer offer/answer store
 core/server.py     https server + http redirect + ServerManager (shared CORS mixin)
+core/turn.py       minimal TURN/UDP relay (RFC 5766 subset, stdlib only)
 core/gui.py        Tkinter control panel
 www/shared.css     stage theme shared by Sharer/Viewer
 www/shared.js      stage helpers (toast, fullscreen, room parsing, autoplay…)
@@ -160,16 +162,19 @@ Defaults live in `core/config.py`:
 |---|---|---|
 | `https_port` | `443` | needs admin rights on Windows |
 | `http_port` | `80` | best-effort redirect listener |
+| `turn_port` | `3478` | TURN/UDP relay listener (`0` = disabled) |
+| `turn_realm` | `MirrorLAN` | TURN auth realm |
 | `www_dir` | `www/` | served folder |
 | `cert_file` / `key_file` | `cert.pem` / `key.pem` | auto-generated |
 | `sharer_timeout` | `15` s | room dropped after no heartbeat |
 
-CLI flags: `--serve [PORT]`, `--dir PATH`, `--https-port PORT`, `--http-port PORT`.
+CLI flags: `--serve [PORT]`, `--dir PATH`, `--https-port PORT`, `--http-port PORT`, `--turn-port PORT`.
 
 ## API
 
 - `GET /api/rooms` — list active rooms
 - `GET /api/diag` — last signaling events (offer/answer/leave with client IP + candidate counts) for debugging
+- `GET /api/turn` — time-limited TURN credentials (`{urls, username, credential, ttl}`) for the relay fallback (`503` while the relay is down — pages then use host candidates only)
 - `GET /api/offers?room=` — list viewer offers in a room
 - `GET /api/answer?id=&room=` — fetch an answer (`200 {"waiting": true}` while none is posted yet)
 - `POST /api/offer` `{id, sdp, room}` — publish a viewer offer (browsers also send `cands`: their ICE candidate count)
@@ -207,7 +212,7 @@ LAN-trust model — anyone on your local network with the URL can create and wat
    - Count goes up but still black → the video path is blocked: disable **AP/client isolation** (or "guest mode") on the router, or try another phone/hotspot.
    - Count stays 0 → the phone never reached the server: recheck steps 1–3 and the IP address.
    - Log stops after `connected - receiving screen` with no `connection:` lines at all → the device gathered zero ICE candidates (UDP blocked at OS level: firewall, antivirus, VPN, or proxy — hits every browser equally). The viewer log says `offer sent (0 local candidates)` in that case; open `https://<LAN-IP>/api/diag` from any device to confirm.
-   - Log shows `conn=new/ice=new` for 12 s+, then `no media … restarting`, and every candidate ends with `.local` → multicast DNS is blocked: the browsers hide LAN IPs (mDNS), so each side must resolve the other's `*.local` over UDP 5353. Allow **UDP 5353 both ways** in Windows Firewall/antivirus on sharer *and* viewer, set the network profile to **Private**, disable **VPN**, keep both devices on the same AP/band (some routers filter multicast between clients). Quick confirmation test (do it on **BOTH** browsers — sharer *and* viewer, one side is not enough): open `edge://flags` (or `chrome://flags`), switch off **"Anonymize local IPs exposed by WebRTC"**, relaunch — candidates become literal `192.168.x.x` and bypass mDNS entirely. If the viewer log then shows a literal IP on the `remote candidates` line and video appears, the culprit was mDNS resolution; if it stays black with literal IPs on both sides and the log moves to `ice: checking → failed`, the culprit is plain UDP blocking (firewall/AP isolation) instead.
+   - Log shows `conn=new/ice=new` and every candidate ends with `.local` → multicast DNS is blocked (browsers hide LAN IPs behind mDNS, each side must resolve the other's `*.local` over UDP 5353). The built-in TURN relay now covers this automatically: look for `turn: … (relay fallback ready)` and `typ relay` candidates in the log — the relay path needs only UDP `3478` to the server, no mDNS at all. If the log says `turn unavailable`, check the server console/GUI for `(turn relay off)` and free UDP port `3478` (or set `--turn-port`). Manual fallback (diagnostic): on **BOTH** browsers open `edge://flags` (or `chrome://flags`), switch off **"Anonymize local IPs exposed by WebRTC"**, relaunch — candidates become literal `192.168.x.x`. If it stays black with literal IPs on both sides and the log moves to `ice: checking → failed`, the culprit is plain UDP blocking (firewall/AP isolation) instead — the relay path should still connect; otherwise allow inter-client UDP or keep both devices on the same AP/band.
 6. **No sound on the phone** — use the volume slider at the bottom of the viewer page (a no-sound badge means the shared source itself has no audio).
 
 ## License
