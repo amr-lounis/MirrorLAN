@@ -192,6 +192,7 @@ LAN-trust model — anyone on your local network with the URL can create and wat
 - **Port 443 needs admin** — run as administrator, or use a high port (`python main.py --serve 8443`), no admin needed.
 - **Windows Firewall prompt** on first start — allow access for private networks so other devices can connect.
 - **Browser says "not secure"** — expected for a self-signed cert; accept/continue, or install `cert.pem` as a trusted certificate.
+- **Page errors right after an update (e.g. `X is not defined`)** — stale cached `shared.js`: hard-refresh with `Ctrl+Shift+R` (or `Cmd+Shift+R` on Mac). Since v2.1.1 the pages detect this themselves and show a "Page outdated" message instead of half-running.
 - **"Cannot bind port"** — another app uses the port; pick a different one.
 - **Room stays listed after closing** — it drops automatically after ~15 s of missed heartbeats.
 - **Moved to another network / IP changed** — just restart the app or press **Make Cert**: the certificate renews itself automatically (same key kept), no manual steps.

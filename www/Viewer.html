@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>MirrorLAN — Viewer</title>
-<link rel="stylesheet" href="shared.css">
+<link rel="stylesheet" href="shared.css?v=3">
 <style>input.vol{width:110px;align-self:center;accent-color:#4f7cff;cursor:pointer}
 button.ghost{background:rgba(255,255,255,.15);color:#cfd6e4;cursor:default}
 .stat{position:absolute;top:calc(10px + env(safe-area-inset-top));left:14px;max-width:70vw;background:rgba(0,0,0,.65);color:#fff;font-size:13px;padding:8px 14px;border-radius:999px;display:none;z-index:5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}</style>
@@ -23,8 +23,12 @@ button.ghost{background:rgba(255,255,255,.15);color:#cfd6e4;cursor:default}
 <button id="full" title="Fullscreen" aria-label="Fullscreen"></button>
 </div>
 </div>
-<script src="shared.js"></script>
+<script src="shared.js?v=3"></script>
 <script>
+if(typeof SHARED_V === 'undefined' || SHARED_V < 3){
+  document.body.innerHTML = '<div style="background:#0f1115;color:#eef1f6;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center;max-width:440px;padding:24px"><h2>Page outdated</h2><p>This page loaded old cached files. Hard-refresh: Ctrl+Shift+R (Windows/Linux) or Cmd+Shift+R (Mac).</p></div></div>';
+  throw new Error('stale cached shared.js (need v3)');
+}
 const remoteV = $('remote');
 let pc = null, vid = null, pollTimer = null, offerAt = 0;
 let roomLive = null, roomLiveAt = 0;

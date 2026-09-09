@@ -1,4 +1,7 @@
-/* MirrorLAN shared helpers: stage pages (Sharer/Viewer) + room-name validation. */
+/* MirrorLAN shared helpers: stage pages (Sharer/Viewer) + room-name validation.
+ * Bump SHARED_V and the ?v= params in the pages whenever this file's API changes,
+ * so browsers never run new pages against a stale cached copy. */
+const SHARED_V = 3;
 const $ = id => document.getElementById(id);
 
 function log(t){ console.log(t); }

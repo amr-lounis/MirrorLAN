@@ -8,7 +8,7 @@ from .net import local_ips, server_urls
 from .server import ServerError, ServerManager, build_manager
 from .signaling import SignalingStore
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 __all__ = [
     "BASE_DIR",
     "Config",
