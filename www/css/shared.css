@@ -1,4 +1,4 @@
-/* MirrorLAN shared stage theme (Sharer + Viewer). Pages may override --btn/--btn-fg. */
+/* MirrorLAN shared stage theme (Viewer stage). Pages may override --btn/--btn-fg. */
 :root{--btn:rgba(79,124,255,.9);--btn-fg:#fff}
 *{box-sizing:border-box}
 html,body{height:100%}

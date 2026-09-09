@@ -1,4 +1,4 @@
-/* MirrorLAN shared helpers: stage pages (Sharer/Viewer) + room-name validation.
+/* MirrorLAN shared helpers: stage pages (Viewer/My Shares) + room-name validation.
  * Freshness is enforced by the server (Cache-Control: no-cache on
  * html/js/css), so no ?v= cache-busters are needed. */
 const $ = id => document.getElementById(id);

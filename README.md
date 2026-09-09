@@ -54,7 +54,7 @@ The browser asks what to share — a single window or the entire screen (see [Mo
 
 Each card shows its stream with the viewer count (`viewers/max`) on top, plus Share/Stop/Fullscreen controls that auto-hide after 5 s. Leaving the tab while anything is live asks for confirmation first.
 
-![Sharing](readme/sharer-live.JPG)
+![Sharing](readme/myshares-live.JPG)
 
 ### 5. Watch from another device
 
@@ -149,11 +149,11 @@ core/signaling.py  thread-safe viewer offer/answer store
 core/server.py     http server + ServerManager (shared CORS mixin)
 core/turn.py       minimal TURN/UDP relay (RFC 5766 subset, stdlib only)
 core/gui.py        Tkinter control panel
-www/*.html          pages (index, Sharer, Viewer, myshares)
-www/css/shared.css  stage theme shared by Sharer/Viewer
-www/css/…           one stylesheet per page (index, sharer, viewer, myshares)
+www/*.html          pages (index, Viewer, myshares)
+www/css/shared.css  stage theme shared by the Viewer stage
+www/css/…           one stylesheet per page (index, viewer, myshares)
 www/js/shared.js    helpers (toast, fullscreen, room parsing, autoplay…)
-www/js/…            one script per page (index, sharer, viewer, myshares)
+www/js/…            one script per page (index, viewer, myshares)
 ```
 
 ## Configuration

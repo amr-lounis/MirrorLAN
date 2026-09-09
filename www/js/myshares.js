@@ -1,6 +1,6 @@
 /* MirrorLAN Multi-room sharer grid logic (extracted from myshares.html; loaded after shared.js). */
 // Multi-room sharer: every card is a full live sharer (own capture stream,
-// own heartbeat + claim loop + peer connections), same protocol as Sharer.html.
+// own heartbeat + claim loop + peer connections), one instance per card.
 const grid = $('grid'), empty = $('empty');
 const overlay = $('overlay'), mname = $('mname'), mmax = $('mmax'), merr = $('merr');
 const cards = new Map(); // room name -> card {room,maxv,stream,pcs,pollTimer,netFails,starting,els}
@@ -120,6 +120,12 @@ async function serveViewer(card, id, offerSdp){
     await fetch('api/answer', { method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ id, sdp: ansSdp, room: card.room, cands: ansCands }) });
     log('[' + card.room + '] serving viewer ' + id + ' (' + ansCands + ' local, ' + relayCount(ansSdp) + ' relay candidates)');
+    if(mdnsOnly(offerSdp) && mdnsOnly(ansSdp))
+      log('[' + card.room + '] viewer ' + id + ' mDNS-only both ends - needs UDP 5353 multicast');
+    else if(mdnsOnly(ansSdp))
+      log('[' + card.room + '] viewer ' + id + ' hides IP (.local) - viewer must resolve via UDP 5353');
+    else if(mdnsOnly(offerSdp))
+      log('[' + card.room + '] viewer ' + id + ' hides its IP (.local) - this side must resolve via UDP 5353');
   }catch(e){
     console.error(e);
     delete card.pcs[id];
@@ -130,14 +136,14 @@ async function serveViewer(card, id, offerSdp){
 let cardSeq = 0;
 
 function paintCardBtns(card){
-  // Same toggle as Sharer.html: Share shows only when idle, Stop while live.
+  // Share shows only when idle, Stop while live.
   const active = !!card.stream || card.starting;
   card.els.share.style.display = active ? 'none' : '';
   card.els.stop.style.display = active ? '' : 'none';
 }
 
 function stopLive(card){
-  // Same as Sharer.html stopAll but per card: the card stays so the same
+  // Per-card stop: the card stays so the same
   // room can be re-shared with its Share button.
   roomPing(card, true);
   if(card.pollTimer){ clearInterval(card.pollTimer); card.pollTimer = null; }
@@ -165,7 +171,7 @@ function stopCard(name){
   paintEmpty();
 }
 
-// Same auto-hide as Sharer.html keepBarAwake, but scoped per card: the bar
+// Auto-hide like shared keepBarAwake, but scoped per card: the bar
 // slides down after 5s without interaction on that card, and wakes on any.
 function keepCardBarAwake(root, bar){
   let idleT = null;
@@ -197,7 +203,7 @@ function makeCard(name, maxv){
   count.textContent = '0/' + maxv;
   const stat = document.createElement('div');
   stat.className = 'stat';
-  // Same control bar as Sharer.html: Share / Stop / Fullscreen.
+  // Control bar per card: Share / Stop / Fullscreen.
   const bar = document.createElement('div');
   bar.className = 'bar';
   const share = document.createElement('button');
@@ -387,6 +393,21 @@ $('leavego').onclick = () => {
   try{ history.back(); }catch(e){} // exit to the previous page
 };
 leaveov.addEventListener('click', e => { if(e.target === leaveov) closeLeaveModal(); });
+
+// Deep link: myshares.html?room=name&max=n pre-fills the new-share modal
+// and opens it. Capture itself still needs one click on Share: browsers
+// require a user gesture for getDisplayMedia.
+try{
+  const _q = new URLSearchParams(location.search);
+  const _qr = ((_q.get('room') || '').toLowerCase().match(/^[a-z0-9\-_]{1,32}$/) || [null])[0];
+  const _qm = parseInt(_q.get('max'), 10);
+  if(_qr){
+    openModal();
+    mname.value = _qr;
+    if(Number.isFinite(_qm)) mmax.value = Math.min(99, Math.max(1, _qm));
+    try{ mname.focus(); }catch(e){}
+  }
+}catch(e){}
 
 paintEmpty();
 window.addEventListener('beforeunload', (e) => {

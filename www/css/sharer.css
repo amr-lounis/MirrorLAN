@@ -1,3 +1,0 @@
-/* MirrorLAN Single-room sharer styles (extracted from Sharer.html). */
-:root{--btn:rgba(34,197,94,.9);--btn-fg:#000}
-.aud{position:absolute;top:calc(14px + env(safe-area-inset-top));left:14px;width:12px;height:12px;border-radius:50%;background:rgba(255,255,255,.25);z-index:5}

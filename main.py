@@ -18,7 +18,7 @@ Layout:
     core/turn.py       TURN/UDP relay fallback (stdlib only)
     core/server.py     http server + ServerManager
     core/gui.py        Tkinter control panel
-    www/               served pages (Sharer.html, Viewer.html, ...)
+    www/               served pages (myshares.html, Viewer.html, ...)
 """
 from __future__ import annotations
 

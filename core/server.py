@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Plain-HTTP static server: serves a folder and exposes the tiny /api
-signaling endpoints used by Sharer/Viewer. No TLS (see Config.port).
+signaling endpoints used by the sharing/watching pages. No TLS (see Config.port).
 
 Note: browsers enable screen capture only in secure contexts, so with
 plain HTTP only http://localhost can share; LAN devices can watch.
@@ -83,7 +83,7 @@ def create_api_handler(store: SignalingStore, www_dir: str,
 
         def end_headers(self):
             # Pages/scripts must revalidate on every load: a stale cached
-            # shared.js against new Sharer/Viewer breaks with "X is not
+            # shared.js against new pages breaks with "X is not
             # defined". "no-cache" still allows 304 (Last-Modified) so LAN
             # traffic stays light. API polls must never cache at all.
             try:
