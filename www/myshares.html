@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>My Shares</title>
+<style>
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:#0f1115;color:#eef1f6;font-family:system-ui;display:flex;flex-direction:column;align-items:center;padding:24px 16px}
+.wrap{width:100%;max-width:960px;display:flex;flex-direction:column;align-items:center}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:#8b93a7;font-size:13px;margin:0 0 16px}
+.add{width:56px;height:56px;border-radius:50%;background:transparent;color:#eef1f6;border:2px solid #eef1f6;font-size:28px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;margin:6px 0 20px}
+.add:active{transform:scale(.94)}
+.grid{width:100%;display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))}
+.card{position:relative;background:#171a21;border:1px solid #2a2f3a;border-radius:12px;overflow:hidden}
+.card video{display:block;width:100%;aspect-ratio:16/9;background:#000;object-fit:contain}
+.card .name{padding:10px 12px;font-family:Consolas,monospace;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-top:1px solid #2a2f3a}
+.card .live{position:absolute;top:10px;left:10px;width:10px;height:10px;border-radius:50%;background:#22c55e}
+.card .close{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:16px;cursor:pointer;opacity:0;transition:opacity .2s}
+.card:hover .close,.card:focus-within .close{opacity:1}
+@media (hover:none){.card .close{opacity:1}}
+.empty{color:#8b93a7;font-size:13px;padding:24px 2px;text-align:center}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:20;padding:16px}
+.overlay.open{display:flex}
+.modal{width:100%;max-width:360px;background:#171a21;border:1px solid #2a2f3a;border-radius:12px;padding:18px}
+.modal h2{font-size:15px;margin:0 0 12px}
+.modal input{width:100%;background:#0f1115;color:#eef1f6;border:1px solid #2a2f3a;border-radius:10px;padding:10px 12px;font-size:14px;font-family:Consolas,monospace}
+.modal input:focus{outline:none;border-color:#4f7cff}
+.modal .merr{color:#ef4444;font-size:12px;min-height:18px;margin:6px 0 4px}
+.modal .mrow{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+.modal button{border:0;border-radius:10px;padding:9px 16px;font-weight:700;font-size:14px;cursor:pointer}
+.modal .ok{background:#22c55e;color:#04120a}
+.modal .cancel{background:transparent;color:#eef1f6;border:1px solid #2a2f3a}
+.back{margin-top:18px;color:#8b93a7;font-size:13px;text-decoration:none}
+.back:hover{color:#eef1f6}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>My Shares</h1>
+<p class="sub">Local previews only — nothing is served to viewers from here.</p>
+<button class="add" id="add" title="Add share" aria-label="Add share">+</button>
+<div class="grid" id="grid"></div>
+<div class="empty" id="empty">No previews yet — press + to share a screen or window.</div>
+<a class="back" href="index.html">← Rooms</a>
+</div>
+<div class="overlay" id="overlay">
+<div class="modal" role="dialog" aria-modal="true" aria-labelledby="mtitle">
+<h2 id="mtitle">New preview</h2>
+<input id="mname" placeholder="room-name" maxlength="32" autocapitalize="off" autocomplete="off" spellcheck="false">
+<div class="merr" id="merr"></div>
+<div class="mrow">
+<button class="cancel" id="mcancel">Cancel</button>
+<button class="ok" id="mok">Share</button>
+</div>
+</div>
+</div>
+<script src="shared.js"></script>
+<script>
+const grid = $('grid'), empty = $('empty');
+const overlay = $('overlay'), mname = $('mname'), merr = $('merr');
+const cards = new Map(); // name -> {stream, el}
+
+function paintEmpty(){
+  empty.style.display = cards.size ? 'none' : 'block';
+}
+
+function openModal(){
+  merr.textContent = '';
+  mname.value = '';
+  overlay.classList.add('open');
+  setTimeout(() => { try{ mname.focus(); }catch(e){} }, 0);
+}
+function closeModal(){
+  overlay.classList.remove('open');
+}
+
+function removeCard(name){
+  const c = cards.get(name);
+  if(!c) return;
+  cards.delete(name);
+  try{ c.stream.getTracks().forEach(t => t.stop()); }catch(e){}
+  try{ c.el.remove(); }catch(e){}
+  paintEmpty();
+  log('preview removed: ' + (name || '(default)'));
+}
+
+function makeCard(name, stream){
+  const card = document.createElement('div');
+  card.className = 'card';
+  const dot = document.createElement('span');
+  dot.className = 'live';
+  const video = document.createElement('video');
+  video.autoplay = true;
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = stream;
+  try{ const p = video.play(); if(p && p.catch) p.catch(() => {}); }catch(e){}
+  const label = document.createElement('div');
+  label.className = 'name';
+  label.textContent = name || '(default)';
+  const x = document.createElement('button');
+  x.className = 'close';
+  x.title = 'Stop';
+  x.setAttribute('aria-label', 'Stop preview ' + (name || 'default'));
+  x.textContent = '×';
+  x.onclick = () => removeCard(name);
+  card.append(dot, video, label, x);
+  grid.append(card);
+  return card;
+}
+
+async function addShare(name){
+  let stream = null;
+  try{
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: true });
+  }catch(e){
+    try{ stream = await navigator.mediaDevices.getDisplayMedia({ video: true }); }
+    catch(e2){ alert('Screen capture failed: ' + (e2 && e2.name || 'error')); log('capture failed: ' + (e2 && e2.message || e2)); return; }
+  }
+  const el = makeCard(name, stream);
+  cards.set(name, { stream, el });
+  try{
+    stream.getVideoTracks()[0].addEventListener('ended', () => removeCard(name));
+  }catch(e){}
+  paintEmpty();
+  log('preview live: ' + (name || '(default)'));
+}
+
+$('add').onclick = openModal;
+$('mcancel').onclick = closeModal;
+overlay.addEventListener('click', e => { if(e.target === overlay) closeModal(); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && overlay.classList.contains('open')) closeModal(); });
+mname.addEventListener('keydown', e => { if(e.key === 'Enter') $('mok').click(); });
+$('mok').onclick = () => {
+  const v = cleanRoom(mname.value);
+  if(!ROOM_RE.test(v)){ merr.textContent = 'Use a-z 0-9 - _ (1-32 chars).'; mname.focus(); return; }
+  if(cards.has(v)){ merr.textContent = 'This name is already previewing.'; mname.focus(); return; }
+  closeModal();
+  addShare(v);
+};
+
+paintEmpty();
+window.addEventListener('beforeunload', () => {
+  for(const name of Array.from(cards.keys())) removeCard(name);
+});
+</script>
+</body>
+</html>
