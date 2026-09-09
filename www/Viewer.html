@@ -6,12 +6,14 @@
 <title>MirrorLAN — Viewer</title>
 <link rel="stylesheet" href="shared.css">
 <style>input.vol{width:110px;align-self:center;accent-color:#4f7cff;cursor:pointer}
-button.ghost{background:rgba(255,255,255,.15);color:#cfd6e4;cursor:default}</style>
+button.ghost{background:rgba(255,255,255,.15);color:#cfd6e4;cursor:default}
+.stat{position:absolute;top:calc(10px + env(safe-area-inset-top));left:14px;max-width:70vw;background:rgba(0,0,0,.65);color:#fff;font-size:13px;padding:8px 14px;border-radius:999px;display:none;z-index:5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}</style>
 </head>
 <body>
 <div class="stage" id="stage">
 <video id="remote" autoplay playsinline></video>
 <div class="toast" id="toast"></div>
+<div class="stat" id="stat" style="display:none"></div>
 <div class="bar" id="bar">
 <button id="watch" title="Watch" aria-label="Watch"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
 <button id="mute" title="Mute" aria-label="Mute" style="display:none"></button>
@@ -70,6 +72,25 @@ function scheduleRetry(){
 function makeId(){ return 'v-' + Math.random().toString(36).slice(2,8); }
 log('room: ' + (ROOM || '(default)'));
 
+function setStat(t){
+  // Visible link state: on a failing device this names the culprit
+  // without opening devtools (connecting / reconnecting / failed).
+  const el = $('stat');
+  if(!t){ el.style.display = 'none'; return; }
+  el.textContent = t;
+  el.style.display = 'block';
+}
+function logRemoteCands(){
+  // On 'failed', dump the sharer's candidates: '.local' names that the
+  // device cannot resolve (mDNS blocked) vs plain IPs point at routing.
+  try{
+    const sdp = (pc && pc.remoteDescription && pc.remoteDescription.sdp) || '';
+    const cands = sdp.split('\n').filter(l => l.indexOf('a=candidate:') === 0);
+    log('remote candidates (' + cands.length + '):');
+    cands.slice(0, 8).forEach(l => log('  ' + l.slice(0, 100)));
+  }catch(e){}
+}
+
 function hasAudio(){
   try{
     const s = remoteV.srcObject;
@@ -113,6 +134,7 @@ async function watch(keepVid){
   cleanupConn();
   autoRetry = true;
   paintViewerBtns();
+  setStat('connecting…');
   if(!keepVid || !vid){ vid = makeId(); retryCount = 0; }
   log('connecting as ' + vid + ' ...');
   try{
@@ -133,8 +155,13 @@ async function watch(keepVid){
       if(pc !== myPc) return;
       const s = myPc.connectionState;
       log('connection: ' + s);
-      if(s === 'connected'){ retryCount = 0; cancelRetry(); cancelWatchdog(); hideToast(); }
-      else if(s === 'disconnected' || s === 'failed' || s === 'closed'){ scheduleRetry(); }
+      if(s === 'connected'){ retryCount = 0; cancelRetry(); cancelWatchdog(); hideToast(); setStat(null); }
+      else if(s === 'disconnected' || s === 'failed' || s === 'closed'){
+        if(s === 'failed'){ setStat('connection failed — retrying…'); logRemoteCands(); }
+        else setStat('reconnecting…');
+        scheduleRetry();
+      }
+      else if(s === 'checking' || s === 'new'){ setStat('connecting…'); }
     };
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -182,6 +209,7 @@ function cleanupConn(){
   if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
   cancelWatchdog();
   hideToast();
+  setStat(null);
   if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM}), keepalive: true }).catch(()=>{}); }catch(e){} }
   if(pc){ try{ pc.onconnectionstatechange = null; pc.ontrack = null; pc.close(); }catch(e){} pc = null; }
   remoteV.srcObject = null;
@@ -190,6 +218,7 @@ function cleanupConn(){
 function leave(msg = true){
   autoRetry = false; // manual stop (X button / page close): no more retries
   cancelRetry();
+  cancelWatchdog();
   cleanupConn();
   paintViewerBtns();
   if(msg) log('left');
