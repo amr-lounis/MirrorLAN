@@ -1,0 +1,35 @@
+/* MirrorLAN Rooms page styles (extracted from index.html). */
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{margin:0;color:#eef1f6;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;justify-content:center;padding:32px 16px 48px;
+  background:radial-gradient(900px 480px at 50% -120px,rgba(79,124,255,.14),transparent 70%),#0f1115}
+.wrap{width:100%;max-width:560px}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.logo{position:relative;width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#22c55e,#16a34a);display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 4px 18px rgba(34,197,94,.35)}
+.logo svg{display:block}
+.brand h1{font-size:21px;margin:0;letter-spacing:.2px}
+.brand small{display:block;font-size:12px;color:#8b93a7;font-weight:400}
+.sub{color:#8b93a7;font-size:13px;margin:0 0 20px}
+.sechead{display:flex;align-items:center;gap:8px;margin:20px 0 10px}
+.sechead h2{font-size:12px;color:#8b93a7;margin:0;font-weight:700;letter-spacing:1px}
+.count{min-width:24px;height:22px;padding:0 7px;border-radius:999px;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#4ade80;font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.row{display:flex;align-items:center;gap:12px;background:#171a21;border:1px solid #2a2f3a;border-radius:14px;padding:12px 14px;margin:10px 0;transition:transform .15s,border-color .15s,box-shadow .15s}
+.row:hover{transform:translateY(-1px);border-color:#4f7cff;box-shadow:0 6px 20px rgba(79,124,255,.15)}
+.dot{position:relative;width:10px;height:10px;border-radius:50%;background:#22c55e;flex:none}
+.dot::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid rgba(34,197,94,.5);animation:pulse 1.8s ease-out infinite}
+@keyframes pulse{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.3);opacity:0}}
+.name{flex:1;font-family:Consolas,monospace;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button{background:#4f7cff;color:#fff;border:0;border-radius:10px;padding:9px 16px;font-weight:700;font-size:14px;cursor:pointer;flex:none;display:inline-flex;align-items:center;gap:6px}
+button:active{transform:scale(.96)}
+.row button{background:linear-gradient(135deg,#5b86ff,#3b63e0);box-shadow:0 3px 12px rgba(79,124,255,.35)}
+.row button:hover{filter:brightness(1.1)}
+.emptybox{border:1.5px dashed #2a2f3a;border-radius:14px;padding:26px 16px;text-align:center;color:#8b93a7;font-size:13px}
+.emptybox svg{opacity:.5;margin-bottom:8px}
+.err{color:#ef4444;font-size:13px;padding:12px 2px;display:none;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:10px;margin-top:10px}
+.divider{display:flex;align-items:center;gap:10px;color:#4a5162;font-size:11px;margin:24px 0 14px;letter-spacing:1px}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:#2a2f3a}
+.cta{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#04120a;font-weight:800;font-size:15px;text-decoration:none;box-shadow:0 6px 24px rgba(34,197,94,.3);transition:transform .15s,filter .15s}
+.cta:hover{filter:brightness(1.07)}
+.cta:active{transform:scale(.98)}
+.hint{margin-top:14px;text-align:center;color:#4a5162;font-size:12px}
+@media (prefers-reduced-motion:reduce){.dot::after{animation:none}.row,.cta,button{transition:none}}

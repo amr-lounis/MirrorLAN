@@ -1,0 +1,402 @@
+/* MirrorLAN Viewer logic (extracted from Viewer.html; loaded after shared.js). */
+const remoteV = $('remote');
+let pc = null, vid = null, pollTimer = null, offerAt = 0;
+let statTimer = null;
+let mediaFlowing = false, mediaTimer = null;
+let locMdns = false, remMdns = false, mediaFails = 0;
+let roomLive = null, roomLiveAt = 0;
+let retryTimer = null, retryCount = 0, autoRetry = false;
+let watchdogTimer = null;
+const WATCHDOG_MS = 30000; // waiting for the first answer with no recovery =
+// black forever (lost offer, wiped server, failed serve). Restart the cycle.
+
+function cancelWatchdog(){
+  if(watchdogTimer){ clearTimeout(watchdogTimer); watchdogTimer = null; }
+}
+function armWatchdog(){
+  cancelWatchdog();
+  watchdogTimer = setTimeout(() => {
+    watchdogTimer = null;
+    if(!autoRetry) return; // left meanwhile (X button / page close)
+    if(pc && pc.connectionState === 'connected') return; // recovered meanwhile
+    log('no answer for 30s - restarting watch');
+    watch(true); // same id: fresh offer + fresh pc
+  }, WATCHDOG_MS);
+}
+
+function cancelRetry(){
+  if(retryTimer){ clearTimeout(retryTimer); retryTimer = null; }
+}
+function paintViewerBtns(){
+  // Play shows only when fully stopped; X shows while watching, waiting, or retrying.
+  $('watch').style.display = autoRetry ? 'none' : '';
+  $('leave').style.display = autoRetry ? '' : 'none';
+}
+function scheduleRetry(){
+  if(!autoRetry || retryTimer) return; // manual Leave stops everything; one pending retry max
+  const wait = Math.min(15000, 2000 * Math.pow(2, Math.min(retryCount, 3))); // 2s,4s,8s,15s…
+  retryCount++;
+  showToast('Connection lost — retrying…');
+  log('connection lost - retrying in ' + wait + 'ms');
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if(!autoRetry) return;
+    const st = pc && pc.connectionState;
+    if(st === 'connected'){ retryCount = 0; hideToast(); return; } // blip is over: keep the live link
+    watch(true);
+  }, wait);
+}
+
+function makeId(){ return 'v-' + Math.random().toString(36).slice(2,8); }
+log('room: ' + (ROOM || '(default)'));
+try{ log('viewer UA: ' + navigator.userAgent.slice(0, 120)); }catch(e){}
+
+// ---- extra media diagnostics (black-screen cases) ----
+function logVideoState(tag){
+  try{
+    const s = remoteV.srcObject;
+    let ti = 'no-stream';
+    if(s){
+      try{
+        ti = s.getTracks().map(t => t.kind + ':' + t.readyState + (t.muted ? '(muted)' : '') + (t.enabled ? '' : '(disabled)')).join(',');
+      }catch(e){ ti = 'tracks?'; }
+    }
+    log('video[' + tag + '] rs=' + remoteV.readyState + ' paused=' + remoteV.paused
+      + ' muted=' + remoteV.muted + ' ' + remoteV.videoWidth + 'x' + remoteV.videoHeight
+      + ' t=' + (Math.round(remoteV.currentTime * 10) / 10) + 's tracks=[' + ti + ']');
+    if(remoteV.videoWidth > 0 && !mediaFlowing){
+      mediaFlowing = true;
+      mediaFails = 0;
+      cancelMediaWatchdog();
+      log('first frame ' + remoteV.videoWidth + 'x' + remoteV.videoHeight + ' - link is flowing');
+    }
+  }catch(e){}
+}
+// One-line SDP summary: catches rejected m-lines (port 0) or missing
+// BUNDLE without dumping the whole (huge) SDP into the log.
+function logSdpSummary(sdp, tag){
+  try{
+    const lines = String(sdp || '').split('\n');
+    const ms = lines.filter(l => l.indexOf('m=') === 0).map(l => l.slice(0, 40));
+    const grp = lines.filter(l => l.indexOf('a=group:') === 0).map(l => l.slice(0, 60));
+    const setup = lines.filter(l => l.indexOf('a=setup:') === 0).map(l => l.slice(0, 20));
+    log(tag + ' m=[' + ms.join(' | ') + '] ' + grp.join(',') + ' ' + setup.join(','));
+  }catch(e){}
+}
+function logLocalCands(){
+  try{
+    const sdp = (pc && pc.localDescription && pc.localDescription.sdp) || '';
+    const cands = sdp.split('\n').filter(l => l.indexOf('a=candidate:') === 0);
+    log('local candidates (' + cands.length + '):');
+    cands.slice(0, 8).forEach(l => log('  ' + l.slice(0, 100)));
+  }catch(e){}
+}
+// A viewer stuck at conn=new/ice=new with no RTP never fires
+// onconnectionstatechange, so scheduleRetry() can never save it (and the
+// 30s answer-watchdog was already cancelled on answer). Without this the
+// page sits on black forever. Re-offer with the same id: the server
+// replaces the stale link, so restarting can never strand it.
+function cancelMediaWatchdog(){ try{ if(mediaTimer){ clearTimeout(mediaTimer); mediaTimer = null; } }catch(e){} }
+function armMediaWatchdog(myPc, myVid){
+  cancelMediaWatchdog();
+  mediaFlowing = false;
+  // Backoff so a permanently blocked device retries at 12s,24s,48s,60s…
+  // instead of spamming the log every 12s forever.
+  const wait = Math.min(60000, 12000 * Math.pow(2, Math.min(mediaFails, 2)));
+  mediaTimer = setTimeout(() => {
+    mediaTimer = null;
+    if(!autoRetry || pc !== myPc || mediaFlowing) return;
+    if(myPc.connectionState === 'connected') return;
+    mediaFails++;
+    log('no media for ' + Math.round(wait / 1000) + 's (conn=' + myPc.connectionState + '/ice=' + myPc.iceConnectionState + ') - restarting watch');
+    logLocalCands();
+    logRemoteCands();
+    logVideoState('stuck');
+    if(locMdns || remMdns){
+      showToast('no video path (mDNS?) — flag off BOTH browsers / UDP 5353…');
+      log('HINT: ' + (locMdns && remMdns ? 'both ends hide LAN IPs (.local)'
+        : remMdns ? 'the sharer hides its LAN IP (.local) - THIS viewer must resolve it'
+        : 'this viewer hides its LAN IP (.local) - the sharer must resolve it')
+        + '; allow multicast DNS (UDP 5353) both ways, disable VPN/firewall, or switch off '
+        + '"hide local IPs with mDNS" in chrome/edge://flags on BOTH browsers for a test');
+    }else{
+      showToast('no video path — retrying (check VPN/firewall on this device)…');
+    }
+    watch(true); // same id: fresh offer + fresh pc
+  }, wait);
+}
+['loadedmetadata','playing','waiting','stalled','pause','emptied','error','suspend'].forEach(ev => {
+  try{ remoteV.addEventListener(ev, () => logVideoState(ev)); }catch(e){}
+});
+
+// Samples inbound-rtp stats after the answer: proves whether RTP bytes
+// actually flow. Signaling can succeed (offer/answer exchanged, ontrack
+// fired) while UDP is blocked (AP isolation / firewall / VPN) — then
+// bytesReceived stays 0 and the screen stays black forever.
+function watchMediaStats(myPc, myVid){
+  try{ if(statTimer){ clearInterval(statTimer); statTimer = null; } }catch(e){}
+  let runs = 0;
+  const sample = async () => {
+    if(!myPc || pc !== myPc) return;
+    runs++;
+    try{
+      const stats = await myPc.getStats();
+      let inbound = null, pair = null;
+      stats.forEach(r => {
+        if(!inbound && r.type === 'inbound-rtp' && !r.isRemote && (r.kind === 'video' || r.mediaType === 'video')) inbound = r;
+        if(r.type === 'candidate-pair' && (r.selected || r.state === 'succeeded')) pair = r;
+      });
+      if(inbound){
+        if((inbound.bytesReceived || 0) > 0 && !mediaFlowing){
+          mediaFlowing = true;
+          mediaFails = 0;
+          cancelMediaWatchdog();
+          log('first media bytes received - link is flowing');
+        }
+        log('stats[' + myVid + '] bytes=' + (inbound.bytesReceived || 0)
+          + ' frames=' + (inbound.framesDecoded || 0)
+          + ' dropped=' + (inbound.framesDropped || 0)
+          + ' lost=' + (inbound.packetsLost || 0)
+          + ' jitter=' + (inbound.jitter !== undefined ? Math.round(inbound.jitter * 1000) : '?') + 'ms'
+          + ' conn=' + myPc.connectionState + '/' + myPc.iceConnectionState);
+        if(runs >= 2 && (inbound.bytesReceived || 0) === 0){
+          if(locMdns || remMdns){
+            showToast('no video path (mDNS?) — flag off BOTH browsers / UDP 5353');
+            log('WARNING: .local candidates involved, 0 bytes - multicast DNS blocked?');
+          }else{
+            showToast('connected but no video data — check same Wi-Fi / AP isolation / VPN');
+            log('WARNING: 0 bytes received - UDP media blocked? (AP isolation/firewall/VPN)');
+          }
+          logRemoteCands();
+        }
+      }else{
+        log('stats[' + myVid + '] no inbound-rtp yet (conn=' + myPc.connectionState + '/' + myPc.iceConnectionState + ')');
+      }
+      if(pair){
+        try{
+          log('pair: ' + (pair.localCandidateId || '?') + ' -> ' + (pair.remoteCandidateId || '?')
+            + ' state=' + (pair.state || pair.writeState || '?'));
+        }catch(e){}
+      }
+      logVideoState('stats' + runs);
+    }catch(e){ log('stats error: ' + (e && e.message)); }
+    if(runs >= 4){ try{ clearInterval(statTimer); statTimer = null; }catch(e){} }
+  };
+  setTimeout(sample, 3000);
+  try{ statTimer = setInterval(sample, 5000); }catch(e){}
+}
+function cancelStats(){ try{ if(statTimer){ clearInterval(statTimer); statTimer = null; } }catch(e){} }
+
+async function refreshRoomLive(){
+  // Is our room actually live on the server? Cached 10s. null = unknown
+  // (fetch failed). Lets the waiting message name the real problem:
+  // wrong room name vs. full room vs. sharer gone.
+  if(Date.now() - roomLiveAt < 10000) return roomLive;
+  try{
+    const r = await fetch('api/rooms');
+    if(r.ok){
+      const data = await r.json();
+      roomLive = (data.rooms || []).some(x => x.live && (x.room || '') === ROOM);
+      roomLiveAt = Date.now();
+    }
+  }catch(e){}
+  return roomLive;
+}
+
+function setStat(t){
+  // Visible link state: on a failing device this names the culprit
+  // without opening devtools (connecting / reconnecting / failed).
+  const el = $('stat');
+  if(!t){ el.style.display = 'none'; return; }
+  el.textContent = t;
+  el.style.display = 'block';
+}
+function logRemoteCands(){
+  // On 'failed', dump the sharer's candidates: '.local' names that the
+  // device cannot resolve (mDNS blocked) vs plain IPs point at routing.
+  try{
+    const sdp = (pc && pc.remoteDescription && pc.remoteDescription.sdp) || '';
+    const cands = sdp.split('\n').filter(l => l.indexOf('a=candidate:') === 0);
+    log('remote candidates (' + cands.length + '):');
+    cands.slice(0, 8).forEach(l => log('  ' + l.slice(0, 100)));
+  }catch(e){}
+}
+
+function hasAudio(){
+  try{
+    const s = remoteV.srcObject;
+    return !!(s && s.getAudioTracks && s.getAudioTracks().length);
+  }catch(e){ return false; }
+}
+const VOL_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/><path d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12"/></svg>';
+const MUTE_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/><path d="M16 9l6 6M22 9l-6 6"/></svg>';
+function paintMuteBtn(){
+  $('mute').innerHTML = remoteV.muted ? MUTE_ICON : VOL_ICON;
+  $('mute').title = remoteV.muted ? 'Unmute' : 'Mute';
+}
+function paintAudioUi(){
+  // Audio controls only when the stream really carries audio;
+  // otherwise a badge says the stream has no sound.
+  const has = hasAudio() && !!remoteV.srcObject;
+  $('mute').style.display = has ? '' : 'none';
+  $('vol').style.display = has ? '' : 'none';
+  $('noaud').style.display = (!has && !!remoteV.srcObject) ? '' : 'none';
+  if(has) paintMuteBtn();
+}
+$('mute').onclick = () => {
+  remoteV.muted = !remoteV.muted;
+  if(!remoteV.muted) remoteV.play().catch(()=>{});
+  paintMuteBtn();
+};
+$('vol').oninput = e => {
+  const v = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+  remoteV.volume = v / 100;
+  if(v > 0 && remoteV.muted) remoteV.muted = false;
+  paintMuteBtn();
+};
+try{ remoteV.addEventListener('volumechange', () => {
+  try{ $('vol').value = Math.round(remoteV.volume * 100); }catch(e){}
+  paintMuteBtn();
+}); }catch(e){}
+
+async function watch(keepVid){
+  cancelRetry();
+  cancelWatchdog();
+  cleanupConn();
+  autoRetry = true;
+  paintViewerBtns();
+  setStat('connecting…');
+  if(!keepVid || !vid){ vid = makeId(); retryCount = 0; mediaFails = 0; }
+  log('connecting as ' + vid + ' ...');
+  try{
+    pc = new RTCPeerConnection({ iceServers: await getIceServers() }); // LAN only, relay fallback
+    const myPc = pc; // ignore late events from a previous connection
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+    pc.ontrack = e => { if(e.streams[0] && pc === myPc){
+      remoteV.srcObject = e.streams[0];
+      const s = e.streams[0];
+      let av = 0, vv = 0, detail = '';
+      try{ av = s.getAudioTracks().length; vv = s.getVideoTracks().length; }catch(err){}
+      try{
+        detail = s.getTracks().map(t => {
+          t.onmute = () => log('track ' + t.kind + ' muted');
+          t.onunmute = () => log('track ' + t.kind + ' unmuted');
+          t.onended = () => log('track ' + t.kind + ' ended');
+          return t.kind + ':' + t.readyState + (t.muted ? '(muted)' : '');
+        }).join(',');
+      }catch(err){}
+      log('tracks: ' + vv + ' video + ' + av + ' audio [' + detail + ']');
+      logVideoState('ontrack');
+      playWithSound(remoteV);
+      paintAudioUi();
+    } };
+    pc.onicegatheringstatechange = () => { if(pc === myPc) log('ice-gathering: ' + myPc.iceGatheringState); };
+    pc.oniceconnectionstatechange = () => {
+      if(pc !== myPc) return;
+      log('ice: ' + myPc.iceConnectionState);
+      if(myPc.iceConnectionState === 'failed') logRemoteCands();
+    };
+    pc.onsignalingstatechange = () => { if(pc === myPc) log('signaling: ' + myPc.signalingState); };
+    pc.onconnectionstatechange = () => {
+      if(pc !== myPc) return;
+      const s = myPc.connectionState;
+      log('connection: ' + s + ' (ice=' + myPc.iceConnectionState + ')');
+      if(s === 'connected'){ retryCount = 0; cancelRetry(); cancelWatchdog(); hideToast(); setStat(null); }
+      else if(s === 'disconnected' || s === 'failed' || s === 'closed'){
+        if(s === 'failed'){ setStat('connection failed — retrying…'); logRemoteCands(); }
+        else setStat('reconnecting…');
+        scheduleRetry();
+      }
+      else if(s === 'checking' || s === 'new'){ setStat('connecting…'); }
+    };
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    // wait for local gather (non-trickle)
+    await new Promise(res => {
+      if(pc.iceGatheringState === 'complete') return res();
+      const f = () => { if(pc.iceGatheringState === 'complete'){ pc.removeEventListener('icegatheringstatechange', f); res(); } };
+      pc.addEventListener('icegatheringstatechange', f);
+      setTimeout(res, 3000);
+    });
+    const mySdp = pc.localDescription.sdp;
+    const myCands = countCands(mySdp);
+    locMdns = mdnsOnly(mySdp);
+    logSdpSummary(mySdp, 'offer');
+    await fetch('api/offer', { method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ id: vid, sdp: mySdp, room: ROOM, cands: myCands }) });
+    log('offer sent (' + myCands + ' local, ' + relayCount(mySdp) + ' relay candidates), waiting for server answer...');
+    if(myCands === 0) showToast('no network path — UDP may be blocked on this device');
+    offerAt = Date.now();
+    roomLive = null; roomLiveAt = 0;
+    const checkAnswer = async () => {
+      try{
+        const r = await fetch('api/answer?id=' + encodeURIComponent(vid) + '&room=' + encodeURIComponent(ROOM));
+        if(r.ok){
+          const data = await r.json();
+          if(data.sdp){
+            clearInterval(pollTimer); pollTimer = null;
+            cancelWatchdog();
+            hideToast();
+            const remCands = countCands(data.sdp);
+            log('answer received (' + remCands + ' remote, ' + relayCount(data.sdp) + ' relay candidates)');
+            if(remCands === 0) showToast('sharer has no network path — check its network/VPN');
+            logSdpSummary(data.sdp, 'answer');
+            remMdns = mdnsOnly(data.sdp);
+            if(locMdns && remMdns) log('both sides mDNS-only (.local) - needs working multicast DNS (UDP 5353)');
+            else if(remMdns) log('sharer exposes only .local - this device must resolve it via UDP 5353, or switch the flag off on the SHARER browser');
+            else if(locMdns) log('this device exposes only .local - the sharer must resolve it via UDP 5353, or switch the flag off here');
+            await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
+            log('connected - receiving screen (conn=' + pc.connectionState + '/ice=' + pc.iceConnectionState + ')');
+            logVideoState('answer');
+            watchMediaStats(pc, vid);
+            armMediaWatchdog(pc, vid);
+            return;
+          }
+        }
+      }catch(e){}
+      // Still waiting: name the cause instead of a bare spinner.
+      const age = Date.now() - offerAt;
+      if(age > 5000){
+        const live = await refreshRoomLive();
+        if(live === false) showToast('room "' + (ROOM || 'default') + '" is not live — check the name');
+        else if(live === true && age > 12000) showToast('Waiting for a free slot — room may be full…');
+      }
+    };
+    pollTimer = setInterval(checkAnswer, 1000);
+    checkAnswer(); // first check at once: answers posted before our offer save ~1s
+    armWatchdog();
+  }catch(e){
+    console.error(e);
+    log('error: ' + e.message);
+    scheduleRetry(); // e.g. server down: keep trying (X stops it)
+  }
+}
+
+function cleanupConn(){
+  if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+  cancelWatchdog();
+  cancelStats();
+  cancelMediaWatchdog();
+  hideToast();
+  setStat(null);
+  if(vid){ try{ fetch('api/leave', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: vid, room: ROOM}), keepalive: true }).catch(()=>{}); }catch(e){} }
+  if(pc){ try{ pc.onconnectionstatechange = null; pc.ontrack = null; pc.close(); }catch(e){} pc = null; }
+  remoteV.srcObject = null;
+  paintAudioUi();
+}
+function leave(msg = true){
+  autoRetry = false; // manual stop (X button / page close): no more retries
+  cancelRetry();
+  cancelWatchdog();
+  cleanupConn();
+  paintViewerBtns();
+  if(msg) log('left');
+}
+$('watch').onclick = () => watch(false);
+$('leave').onclick = () => leave(true);
+
+setupFullscreen('stage', 'full');
+keepBarAwake('bar');
+paintViewerBtns();
+window.addEventListener('beforeunload', () => leave(false));

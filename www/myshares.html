@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>My Shares</title>
+<link rel="stylesheet" href="css/myshares.css">
+</head>
+<body>
+<div class="wrap">
+<h1>My Shares</h1>
+<p class="sub">Each card shares a screen live — leaving this tab stops every share.</p>
+<button class="add" id="add" title="New share" aria-label="New share">+</button>
+<button class="roomsbtn" id="roomsbtn"><svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 21h8M12 16v5"/></svg> Live Rooms</button>
+<div class="grid" id="grid"></div>
+<div class="empty" id="empty">No live shares — press + to share a screen or window.</div>
+</div>
+<div class="overlay" id="overlay">
+<div class="modal" role="dialog" aria-modal="true" aria-labelledby="mtitle">
+<h2 id="mtitle">New share</h2>
+<label for="mname">Room name</label>
+<input id="mname" placeholder="room-name" maxlength="32" autocapitalize="off" autocomplete="off" spellcheck="false">
+<label for="mmax">Max viewers (1–99)</label>
+<input id="mmax" type="number" min="1" max="99" value="1" inputmode="numeric">
+<div class="merr" id="merr"></div>
+<div class="mrow">
+<button class="cancel" id="mcancel">Cancel</button>
+<button class="ok" id="mok">Share</button>
+</div>
+</div>
+</div>
+<div class="overlay" id="roomsov">
+<div class="modal" role="dialog" aria-modal="true" aria-labelledby="rtitle">
+<h2 id="rtitle">Live rooms</h2>
+<div id="roomslist"><div id="roomsempty">No live rooms.</div></div>
+<div class="mrow">
+<a class="fulllink" href="index.html" target="_blank" rel="noopener">Open Rooms page ↗</a>
+<button class="cancel" id="roomsclose">Close</button>
+</div>
+</div>
+</div>
+<div class="overlay" id="leaveov">
+<div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="leavetitle">
+<h2 id="leavetitle">Stop sharing?</h2>
+<div class="leavewarn" id="leavemsg"></div>
+<div class="mrow">
+<button class="cancel" id="leavestay">Stay sharing</button>
+<button class="stopall" id="leavego">Stop all &amp; leave</button>
+</div>
+</div>
+</div>
+<script src="js/shared.js"></script>
+<script src="js/myshares.js"></script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+/* MirrorLAN Viewer styles (extracted from Viewer.html). */
+input.vol{width:110px;align-self:center;accent-color:#4f7cff;cursor:pointer}
+button.ghost{background:rgba(255,255,255,.15);color:#cfd6e4;cursor:default}
+.stat{position:absolute;top:calc(10px + env(safe-area-inset-top));left:14px;max-width:70vw;background:rgba(0,0,0,.65);color:#fff;font-size:13px;padding:8px 14px;border-radius:999px;display:none;z-index:5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
