@@ -1,5 +1,15 @@
 /* MirrorLAN Rooms page logic (extracted from index.html; loaded after shared.js). */
 const WATCH_ICON = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+// Screen capture works only in a secure context: with plain HTTP that means
+// localhost on the sharing PC itself. Show the share entry-point only there,
+// LAN viewers get a watch-only page.
+function isLocalShareHost(){
+  try{
+    const h = (location.hostname || '').toLowerCase();
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.indexOf('127.') === 0;
+  }catch(e){ return false; }
+}
+try{ if(isLocalShareHost()) $('sharebox').style.display = 'block'; }catch(e){}
 async function refresh(){
   try{
     const r = await fetch('api/rooms');
