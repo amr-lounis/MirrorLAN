@@ -13,7 +13,8 @@ It serves the pages in `www/` (`myshares.html` for sharing, `index.html` + `View
 - Plain-HTTP static file server (no certificates, no warnings)
 - WebRTC signaling API (offers, answers, rooms, sharer heartbeat)
 - Built-in TURN/UDP relay (stdlib only) — automatic fallback when direct browser-to-browser media is blocked (mDNS filtered, AP isolation, VPN); pages use it with zero setup
-- Tkinter GUI: pick a port, Start/Stop, copy LAN addresses
+- Tkinter GUI: pick HTTP + TURN ports, Start/Stop, live relay status, scrollable LAN addresses with copy buttons
+- Rooms page (`index.html`) is watch-only on LAN — the `SHARE FROM THIS DEVICE` entry appears only on `localhost` (sharing PC), where screen capture is allowed
 - Multi-room sharing grid (`myshares.html`): up to 4 live previews per screen, each card a full sharer with Share/Stop/Fullscreen controls, in-page live-rooms panel, and a leave guard so Back/close never kills shares by accident
 - Single-file Windows build via PyInstaller (`build.bat`)
 
@@ -32,7 +33,7 @@ Rooms are in-memory only: a room disappears ~15 s after the sharer closes the pa
 
 ### 1. Start the server
 
-Open the app, pick a port, and press **Start Server**. Copy one of the LAN addresses for the other devices.
+Open the app, pick the HTTP port and the TURN port (`0` = relay off), and press **Start Server**. The relay status shows `on UDP :<port>` or `off (<reason>)`. Copy one of the LAN addresses for the other devices (the list scrolls when there are many).
 
 ![Server stopped](readme/gui-stopped.JPG)
 ![Server running with LAN addresses](readme/gui-running.JPG)
@@ -58,7 +59,7 @@ Each card shows its stream with the viewer count (`viewers/max`) on top, plus Sh
 
 ### 5. Watch from another device
 
-The room appears as live — press **Watch** to view the shared screen.
+The room appears as live — press **Watch** to view the shared screen. On LAN devices the rooms page shows no sharing entry (`SHARE FROM THIS DEVICE` is `localhost`-only).
 
 ![Live room](readme/rooms-live.JPG)
 
@@ -105,7 +106,7 @@ Behavior:
 ## Requirements
 
 - Python 3.10+ (standard library only, no third-party deps to run)
-- PyInstaller only for building the `.exe` (installed automatically by `build.bat`)
+- PyInstaller only for building the `.exe` (installed automatically by `build.bat`, or via `requirements-dev.txt`)
 
 ## Quick start
 
@@ -130,6 +131,7 @@ Share from `http://localhost/myshares.html` on the sharing PC. Other devices on 
 GUI buttons:
 
 - **Copy** / **Copy All** — copy one or all LAN addresses to the clipboard
+- **TURN** field + relay status — set the TURN/UDP port (`0` = disabled) and see whether the relay is `on` or `off`
 
 ## Build the .exe (Windows)
 
@@ -138,6 +140,21 @@ build.bat
 ```
 
 Output: `dist\MirrorLAN.exe` (one file, GUI, no console). Double-click it — the GUI starts, no setup needed.
+
+## Development
+
+```bash
+# Full test suite (stdlib unittest only)
+python -m unittest discover -s tests -v
+
+# JS syntax check (mirrors CI)
+node --check www/js/shared.js
+node --check www/js/index.js
+node --check www/js/viewer.js
+node --check www/js/myshares.js
+```
+
+CI (`.github/workflows/tests.yml`) runs both on `ubuntu/windows × 3.10/3.12`.
 
 ## Project layout
 
@@ -148,12 +165,15 @@ core/net.py        local IPs and public URLs
 core/signaling.py  thread-safe viewer offer/answer store
 core/server.py     http server + ServerManager (shared CORS mixin)
 core/turn.py       minimal TURN/UDP relay (RFC 5766 subset, stdlib only)
-core/gui.py        Tkinter control panel
+core/gui.py        Tkinter control panel (HTTP+TURN ports, relay status, scrollable addresses)
 www/*.html          pages (index, Viewer, myshares)
 www/css/shared.css  stage theme shared by the Viewer stage
 www/css/…           one stylesheet per page (index, viewer, myshares)
 www/js/shared.js    helpers (toast, fullscreen, room parsing, autoplay…)
 www/js/…            one script per page (index, viewer, myshares)
+tests/test_server_api.py  end-to-end HTTP tests for the signaling API
+requirements-dev.txt      dev-only deps (PyInstaller for the .exe build)
+.github/workflows/tests.yml  CI: JS syntax check + unittest on ubuntu/windows
 ```
 
 ## Configuration
@@ -174,6 +194,7 @@ CLI flags: `--serve [PORT]`, `--dir PATH`, `--port PORT`, `--turn-port PORT`.
 
 - `GET /api/rooms` — list active rooms
 - `GET /api/diag` — last signaling events (offer/answer/leave with client IP + candidate counts) for debugging
+- `GET /api/stats` — read-only counters for long-run monitoring (`rooms, offers, answers, departed, allocs, nonces, turn_running, threads`); numbers stay flat when usage is flat
 - `GET /api/turn` — time-limited TURN credentials (`{urls, username, credential, ttl}`) for the relay fallback (`503` while the relay is down — pages then use host candidates only)
 - `GET /api/offers?room=` — list viewer offers in a room
 - `GET /api/answer?id=&room=` — fetch an answer (`200 {"waiting": true}` while none is posted yet)
@@ -189,7 +210,7 @@ LAN-trust model — anyone on your local network with the URL can create and wat
 
 - Traffic is **plain HTTP, not encrypted** — signaling (room names, SDP) travels in cleartext on your LAN. Media stays DTLS-SRTP encrypted browser-to-browser (including over the TURN relay), but assume the LAN itself is trusted.
 - There is **no password or access code** — for a trusted home/office LAN only, do not expose to the internet.
-- Abuse limits: room names `a-z 0-9 - _` (max 32), viewer IDs (max 64), SDP blobs (max 200 KB) — oversized/invalid signaling is rejected (`400`, bodies over 256 KB get `413` with the connection closed).
+- Abuse limits: room names `a-z 0-9 - _` (max 32), viewer IDs (max 64), SDP blobs (max 200 KB) — oversized/invalid signaling is rejected (`400`, bodies over 256 KB get `413` with the connection closed). TURN tables are bounded per allocation (32 peer permissions, 16 channels) and nonces are capped (1024, oldest-first); excess entries are rejected (`508`), never silently evicting live ones. HTTP concurrency is capped (200 connections, idle keep-alive closes after 10 s); beyond that the server answers `503 server busy` and recovers alone.
 - The HTTP API sends `Access-Control-Allow-Origin: *` (handy for local dev, open by design).
 
 ## Troubleshooting

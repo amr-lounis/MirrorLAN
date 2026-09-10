@@ -251,6 +251,67 @@ class TestSignalingApi(unittest.TestCase):
         cands = [e["cands"] for e in _json(body)["events"]]
         self.assertEqual(cands[:2], [3, 2])
 
+    # -- long-run observability / overload --------------------------------
+    def test_stats_counters_no_side_effects(self):
+        p = self.port
+        _post(p, "/api/sharer/heartbeat", {"room": "s1"})
+        _post(p, "/api/offer", {"id": "v-1", "sdp": "s", "room": "s1"})
+        st, headers, body = _get(p, "/api/stats")
+        self.assertEqual(st, 200)
+        data = _json(body)
+        for key in ("rooms", "offers", "answers", "departed",
+                    "allocs", "nonces", "turn_running", "threads"):
+            self.assertIn(key, data, key)
+        self.assertEqual(data["rooms"], 1)
+        self.assertEqual(data["offers"], 1)
+        self.assertEqual(data["turn_running"], False)
+        self.assertGreaterEqual(data["threads"], 1)
+        self.assertEqual(headers.get("Cache-Control"), "no-store")
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), "*")
+        # read-only: data still there afterwards
+        st, _, body = _get(p, "/api/offers?room=s1")
+        self.assertEqual(len(_json(body)["offers"]), 1)
+
+    def test_handler_timeout_is_bounded(self):
+        from core.server import _HANDLER_TIMEOUT, create_api_handler as _mk
+
+        handler = _mk(SignalingStore(), tempfile.gettempdir(), None)
+        self.assertEqual(handler.timeout, _HANDLER_TIMEOUT)
+        self.assertLessEqual(handler.timeout, 30)
+
+    def test_overload_gate_returns_503_and_recovers(self):
+        from core.server import _MAX_CONNS, create_api_handler as _mk
+
+        handler = _mk(SignalingStore(), tempfile.gettempdir(), None)
+        tmp_srv = _ThreadedServer(("127.0.0.1", 0), handler)
+        port = tmp_srv.server_address[1]
+        thread = threading.Thread(target=tmp_srv.serve_forever, daemon=True)
+        thread.start()
+        # hold every slot, then one more must get a fast 503 (reject-new)
+        held = []
+        try:
+            for _ in range(_MAX_CONNS):
+                self.assertTrue(handler._slots.acquire(blocking=False))
+                held.append(True)
+            st, headers, body = _get(port, "/api/rooms")
+            self.assertEqual(st, 503)
+            self.assertIn(b"busy", body)
+        finally:
+            for _ in held:
+                handler._slots.release()
+            tmp_srv.shutdown()
+            tmp_srv.server_close()
+        # after release the same server answers normally again
+        tmp_srv2 = _ThreadedServer(("127.0.0.1", 0), handler)
+        thread2 = threading.Thread(target=tmp_srv2.serve_forever, daemon=True)
+        thread2.start()
+        try:
+            st, _, _ = _get(tmp_srv2.server_address[1], "/api/rooms")
+            self.assertEqual(st, 200)
+        finally:
+            tmp_srv2.shutdown()
+            tmp_srv2.server_close()
+
 
 class TestManagerApiIntegration(unittest.TestCase):
     """ServerManager with the TURN relay disabled still serves the API."""
@@ -287,6 +348,43 @@ class TestManagerApiIntegration(unittest.TestCase):
                 # /api/turn is 503 so pages fall back to host candidates
                 st, _, _ = _get(http_port, "/api/turn")
                 self.assertEqual(st, 503)
+            finally:
+                mgr.stop()
+        finally:
+            tmp.cleanup()
+
+    def test_manager_stats_reports_turn(self):
+        import os
+        import socket
+
+        from core.config import Config
+        from core.server import ServerManager
+
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            www = os.path.join(tmp.name, "www")
+            os.makedirs(www)
+            tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            tcp.bind(("127.0.0.1", 0))
+            http_port = tcp.getsockname()[1]
+            tcp.close()
+            udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            udp.bind(("127.0.0.1", 0))
+            turn_port = udp.getsockname()[1]
+            udp.close()
+            cfg = Config()
+            cfg.www_dir = www
+            cfg.port = http_port
+            cfg.turn_port = turn_port
+            mgr = ServerManager(cfg)
+            mgr.start()
+            try:
+                st, _, body = _get(http_port, "/api/stats")
+                self.assertEqual(st, 200)
+                data = _json(body)
+                self.assertTrue(data["turn_running"])
+                self.assertGreaterEqual(data["allocs"], 0)
+                self.assertGreaterEqual(data["nonces"], 0)
             finally:
                 mgr.stop()
         finally:

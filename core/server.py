@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -44,6 +45,16 @@ _CORS_HEADERS = "Content-Type"
 # Bodies beyond this are rejected before reading (see _body).
 _MAX_BODY_BYTES = 256 * 1024
 
+# Idle keep-alive connections are closed after this many seconds. Active
+# 1s-polling pages never notice (they reuse the connection well within it);
+# dead clients stop pinning a thread each on a years-long run.
+_HANDLER_TIMEOUT = 10
+
+# Hard ceiling on concurrent HTTP connections (threads). Family LAN peaks at
+# ~100 pages (99 viewers + sharers); 200 leaves 2x headroom and turns a
+# slowloris-style pile-up into a fast 503 instead of thread exhaustion.
+_MAX_CONNS = 200
+
 
 class _CorsMixin:
     """CORS answers shared by the API and static responses."""
@@ -62,8 +73,8 @@ class _CorsMixin:
 def create_api_handler(store: SignalingStore, www_dir: str,
                          turn: TurnServer | None = None) -> type:
     """Static files plus /api/offers, /api/claim, /api/answer, /api/offer,
-    /api/leave, /api/rooms, /api/diag, /api/turn, /api/sharer/heartbeat,
-    /api/sharer/leave."""
+    /api/leave, /api/rooms, /api/diag, /api/stats, /api/turn,
+    /api/sharer/heartbeat, /api/sharer/leave."""
 
     class ApiHandler(_CorsMixin, SimpleHTTPRequestHandler):
         # HTTP/1.1 keep-alive: browsers reuse one connection for the
@@ -71,12 +82,48 @@ def create_api_handler(store: SignalingStore, www_dir: str,
         # Every response path below carries an explicit length so a reused
         # connection never stalls waiting for a body that never comes.
         protocol_version = "HTTP/1.1"
+        # Idle sockets don't pin threads forever (see _HANDLER_TIMEOUT).
+        timeout = _HANDLER_TIMEOUT
+        # Shared across all connections of this server (fresh per start).
+        _slots: threading.Semaphore = threading.Semaphore(_MAX_CONNS)
 
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=www_dir, **kwargs)
 
         def log_message(self, *args):
             pass
+
+        def handle(self) -> None:
+            # Reject-new gate: beyond _MAX_CONNS the client gets an instant
+            # 503 + close instead of queueing another thread forever.
+            if not type(self)._slots.acquire(blocking=False):
+                try:
+                    body = b'{"error": "server busy"}'
+                    self.connection.sendall(
+                        b"HTTP/1.1 503 Service Unavailable\r\n"
+                        b"Content-Type: application/json\r\n"
+                        b"Access-Control-Allow-Origin: *\r\n"
+                        b"Cache-Control: no-store\r\n"
+                        + ("Content-Length: %d\r\n" % len(body)).encode()
+                        + b"Connection: close\r\n\r\n" + body)
+                except Exception:
+                    pass
+                try:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                except Exception:
+                    pass
+                try:
+                    self.connection.close()
+                except Exception:
+                    pass
+                return
+            try:
+                super().handle()
+            finally:
+                try:
+                    type(self)._slots.release()
+                except Exception:
+                    pass
 
         def do_OPTIONS(self):
             self._serve_preflight()
@@ -137,6 +184,26 @@ def create_api_handler(store: SignalingStore, www_dir: str,
                 return self._json({"rooms": store.list_rooms()})
             if path.path == "/api/diag":
                 return self._json({"events": store.recent_events()})
+            if path.path == "/api/stats":
+                # Read-only counters for long-run monitoring (no pruning,
+                # no side effects, all snapshots O(1)). Open it from any
+                # device to watch for leaks: numbers must stay flat when
+                # the room/viewer count is flat.
+                data = store.stats()
+                if turn is not None:
+                    try:
+                        data.update(turn.stats())
+                    except Exception:
+                        data.update({"allocs": 0, "nonces": 0})
+                    data["turn_running"] = bool(turn.running)
+                else:
+                    data.update({"allocs": 0, "nonces": 0,
+                                 "turn_running": False})
+                try:
+                    data["threads"] = threading.active_count()
+                except Exception:
+                    pass
+                return self._json(data)
             if path.path == "/api/turn":
                 # Time-limited TURN credentials for the relay fallback.
                 # The host comes from the request itself, so the turn: URL

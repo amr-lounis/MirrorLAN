@@ -193,5 +193,44 @@ class TestExpiry(unittest.TestCase):
         self.assertEqual(store.recent_events(), [])
 
 
+class TestOrphanSharerSweep(unittest.TestCase):
+    """Years-long run: orphan rooms must not need list_rooms to be reclaimed."""
+
+    def test_stale_sharer_pruned_by_any_signaling_write(self):
+        import core.signaling as sig
+
+        store = SignalingStore(sharer_timeout=15)
+        store.heartbeat_sharer("orphan")
+        # fake an old heartbeat + force the throttled sweep to be due
+        store._sharers["orphan"] = time.monotonic() - 30
+        store._sharers_last_prune = 0.0
+        # any signaling write triggers _prune_locked (no list_rooms call)
+        store.put_offer("v-1", "sdp", "other-room")
+        self.assertNotIn("orphan", store._sharers)
+
+    def test_throttle_skips_sweep_within_interval(self):
+        store = SignalingStore(sharer_timeout=15)
+        store.heartbeat_sharer("fresh")
+        store._sharers["fresh"] = time.monotonic() - 30
+        # sweep ran just now -> throttled, stale entry survives this call
+        store._sharers_last_prune = time.monotonic()
+        store.put_offer("v-1", "sdp", "r")
+        self.assertIn("fresh", store._sharers)
+        # once due, the next write reaps it
+        store._sharers_last_prune = 0.0
+        store.put_offer("v-2", "sdp", "r")
+        self.assertNotIn("fresh", store._sharers)
+
+    def test_stats_snapshot_has_no_side_effects(self):
+        store = SignalingStore()
+        store.heartbeat_sharer("live")
+        store.put_offer("v-1", "sdp", "live")
+        stats = store.stats()
+        self.assertEqual(stats, {"rooms": 1, "offers": 1, "answers": 0,
+                                 "departed": 0})
+        # stats() is pure: data still there afterwards
+        self.assertEqual(len(store.list_offers("live")), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

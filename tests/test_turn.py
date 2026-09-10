@@ -424,5 +424,122 @@ class TestManagerTurnIntegration(unittest.TestCase):
             tmp.cleanup()
 
 
+class TestLongRunBounds(unittest.TestCase):
+    """Years-long run: per-alloc tables and nonces stay bounded (reject-new)."""
+
+    def test_sweep_drops_expired_and_rebuilds_rchan(self):
+        import time as _time
+
+        srv = T.TurnServer(port=0, ips=["127.0.0.1"])
+        srv.start()
+        try:
+            cli = _Client(srv.bound_port)
+            try:
+                cli.login(*srv.mint_credential())
+                alloc = list(srv._allocs.values())[-1]
+                now = _time.monotonic()
+                alloc.perms["10.0.0.1"] = now - 1  # expired
+                alloc.perms["10.0.0.2"] = now + 300  # live
+                alloc.chans[0x4000] = ("10.0.0.9", 9999, now - 1)  # expired
+                alloc.rchan[("10.0.0.9", 9999)] = 0x4000
+                alloc.rchan[("10.9.9.9", 1111)] = 0x4000  # stale reverse
+                alloc.chans[0x4001] = ("10.0.0.2", 8888, now + 600)
+                alloc.rchan[("10.0.0.2", 8888)] = 0x4001
+                T.TurnServer._sweep_alloc(alloc, now)
+                self.assertNotIn("10.0.0.1", alloc.perms)
+                self.assertIn("10.0.0.2", alloc.perms)
+                self.assertNotIn(0x4000, alloc.chans)
+                self.assertNotIn(("10.0.0.9", 9999), alloc.rchan)
+                self.assertNotIn(("10.9.9.9", 1111), alloc.rchan)
+                self.assertEqual(alloc.rchan.get(("10.0.0.2", 8888)), 0x4001)
+            finally:
+                cli.close()
+        finally:
+            srv.stop()
+
+    def test_permission_cap_rejects_new_keeps_old(self):
+        import time as _time
+
+        srv = T.TurnServer(port=0, ips=["127.0.0.1"])
+        srv.start()
+        try:
+            cli = _Client(srv.bound_port)
+            try:
+                cli.login(*srv.mint_credential())
+                alloc = list(srv._allocs.values())[-1]
+                now = _time.monotonic()
+                for i in range(T._MAX_PERMS):
+                    alloc.perms["10.1.0.%d" % i] = now + 300
+                # one more distinct IP must be rejected (508), old kept
+                attrs = T._attr(0x0012, T._xor_encode("10.9.9.9", 9999))
+                rtype, _ = cli._authed(0x0008, attrs)
+                self.assertEqual(rtype, 0x0118)
+                self.assertEqual(len(alloc.perms), T._MAX_PERMS)
+                self.assertNotIn("10.9.9.9", alloc.perms)
+                # refreshing an existing permission still works at cap
+                attrs = T._attr(0x0012, T._xor_encode("10.1.0.0", 9999))
+                rtype, _ = cli._authed(0x0008, attrs)
+                self.assertEqual(rtype, 0x0108)
+            finally:
+                cli.close()
+        finally:
+            srv.stop()
+
+    def test_channel_cap_rejects_new_allows_refresh(self):
+        srv = T.TurnServer(port=0, ips=["127.0.0.1"])
+        srv.start()
+        try:
+            cli = _Client(srv.bound_port)
+            try:
+                cli.login(*srv.mint_credential())
+                alloc = list(srv._allocs.values())[-1]
+                base = 0x4000
+                for i in range(T._MAX_CHANS):
+                    cli.bind_channel(base + i, ("127.0.0.1", 20000 + i))
+                self.assertEqual(len(alloc.chans), T._MAX_CHANS)
+                # new channel number rejected...
+                attrs = (T._attr(0x000C, struct.pack("!HH", 0x5000, 0))
+                         + T._attr(0x0012, T._xor_encode("127.0.0.1", 29999)))
+                rtype, _ = cli._authed(0x0009, attrs)
+                self.assertEqual(rtype, 0x0119)
+                # ...but refreshing a bound number still succeeds
+                cli.bind_channel(base, ("127.0.0.1", 20000))
+            finally:
+                cli.close()
+        finally:
+            srv.stop()
+
+    def test_nonce_cap_fifo(self):
+        srv = T.TurnServer(port=0, ips=["127.0.0.1"])
+        srv.start()
+        try:
+            cli = _Client(srv.bound_port)
+            try:
+                for _ in range(T._MAX_NONCES + 50):
+                    cli._send_req(0x0003, T._attr(0x0019, b"\x11\x00\x00\x00"))
+                self.assertLessEqual(len(srv._nonces), T._MAX_NONCES)
+                self.assertEqual(len(srv._nonces), T._MAX_NONCES)
+            finally:
+                cli.close()
+        finally:
+            srv.stop()
+
+    def test_stats_snapshot(self):
+        srv = T.TurnServer(port=0, ips=["127.0.0.1"])
+        self.assertEqual(srv.stats(), {"allocs": 0, "nonces": 0})
+        srv.start()
+        try:
+            cli = _Client(srv.bound_port)
+            try:
+                cli.login(*srv.mint_credential())
+                stats = srv.stats()
+                self.assertEqual(stats["allocs"], 1)
+                self.assertGreaterEqual(stats["nonces"], 1)
+            finally:
+                cli.close()
+        finally:
+            srv.stop()
+
+
 if __name__ == "__main__":
     unittest.main()

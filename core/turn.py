@@ -63,6 +63,14 @@ _CHAN_SECS = 600
 _ALLOC_MAX_SECS = 3600
 _NONCE_SECS = 3600
 _MAX_ALLOCS = 256
+# Per-allocation caps (family LAN needs 1-2; anything above is spam or a bug).
+# When full the server rejects the NEW entry (508) and keeps serving the old
+# ones — never evicts live entries silently.
+_MAX_PERMS = 32  # distinct peer IPs per allocation
+_MAX_CHANS = 16  # channel bindings per allocation
+# Global cap on pending nonces (each lives up to _NONCE_SECS). Overflow evicts
+# the oldest first (FIFO): normal browsers re-try the 401 dance transparently.
+_MAX_NONCES = 1024
 
 
 def _attr(attr_type: int, value: bytes) -> bytes:
@@ -195,6 +203,7 @@ class TurnServer:
         self._thread: Optional[threading.Thread] = None
         self._run = False
         self.bound_port = port
+        self._prune_cursor: int = 0  # round-robin index for per-alloc sweeps
 
     # -- credentials (TURN REST flavour) -------------------------------
 
@@ -330,6 +339,41 @@ class TurnServer:
         for nonce, exp in list(self._nonces.items()):
             if exp <= time.time():
                 self._nonces.pop(nonce, None)
+        # Round-robin sweep of ONE live allocation per second: drops expired
+        # permissions/channels and rebuilds the reverse channel map. Normal
+        # allocs hold 1-2 entries so this is trivial; a spammed alloc is
+        # reclaimed within ~N seconds (N = live allocs) with zero per-packet
+        # cost on the fast path.
+        if self._allocs:
+            keys = list(self._allocs)
+            key = keys[self._prune_cursor % len(keys)]
+            self._prune_cursor += 1
+            alloc = self._allocs.get(key)
+            if alloc is not None:
+                self._sweep_alloc(alloc, now)
+
+    @staticmethod
+    def _sweep_alloc(alloc: _Alloc, now: float) -> None:
+        """Drop expired perms/chans of one allocation, fix rchan. No I/O."""
+        for ip, until in list(alloc.perms.items()):
+            if until <= now:
+                alloc.perms.pop(ip, None)
+        for number, binding in list(alloc.chans.items()):
+            ip, port, until = binding
+            if until <= now:
+                alloc.chans.pop(number, None)
+                if alloc.rchan.get((ip, port)) == number:
+                    alloc.rchan.pop((ip, port), None)
+        # rchan must mirror chans exactly (a rebound channel number leaves a
+        # stale reverse entry behind — see _on_channel_bind).
+        for peer, number in list(alloc.rchan.items()):
+            binding = alloc.chans.get(number)
+            if binding is None or (binding[0], binding[1]) != peer:
+                alloc.rchan.pop(peer, None)
+
+    def stats(self) -> dict:
+        """O(1) counters snapshot for /api/stats. No side effects."""
+        return {"allocs": len(self._allocs), "nonces": len(self._nonces)}
 
     # -- per-socket handlers --------------------------------------------
 
@@ -406,6 +450,13 @@ class TurnServer:
               and _verify_mi(data, key))
         if not ok:
             fresh = secrets.token_urlsafe(12)
+            if len(self._nonces) >= _MAX_NONCES:
+                # FIFO: drop the oldest pending nonce to bound memory on a
+                # years-long run. The dropped client just retries the dance.
+                try:
+                    self._nonces.pop(next(iter(self._nonces)))
+                except StopIteration:
+                    pass
             self._nonces[fresh] = time.time() + _NONCE_SECS
             self._reply(sock, src, err_type, txn,
                         [_attr(_A_ERR, _err_attr(401, "Unauthorized")),
@@ -551,13 +602,26 @@ class TurnServer:
             return
         now = time.monotonic()
         try:
-            for raw in peers:
-                ip, _port = _xor_decode(raw)
-                alloc.perms[ip] = now + _PERM_SECS
+            decoded = [_xor_decode(raw) for raw in peers]
         except ValueError:
             self._reply_auth(sock, src, _T_PERM_E, txn, key,
                              [_attr(_A_ERR, _err_attr(400, "Bad Request"))])
             return
+        # Cap: reject NEW peer IPs when full (expired entries don't count).
+        # Purging happens only on the full path, so the normal 1-2 peer case
+        # stays a couple of dict writes with no scan.
+        fresh_ips = {ip for ip, _port in decoded
+                     if alloc.perms.get(ip, -1) < now}
+        if len(alloc.perms) + len(fresh_ips) > _MAX_PERMS:
+            self._sweep_alloc(alloc, now)
+            fresh_ips = {ip for ip, _port in decoded
+                         if alloc.perms.get(ip, -1) < now}
+            if len(alloc.perms) + len(fresh_ips) > _MAX_PERMS:
+                self._reply_auth(sock, src, _T_PERM_E, txn, key,
+                                 [_attr(_A_ERR, _err_attr(508, "Insufficient Capacity"))])
+                return
+        for ip, _port in decoded:
+            alloc.perms[ip] = now + _PERM_SECS
         self._reply_auth(sock, src, _T_PERM_R, txn, key,
                          [_attr(_A_SOFTWARE, SOFTWARE)])
 
@@ -591,6 +655,23 @@ class TurnServer:
                              [_attr(_A_ERR, _err_attr(400, "Bad Request"))])
             return
         now = time.monotonic()
+        # Refresh of the same channel number is always allowed; only genuinely
+        # NEW bindings count against the cap (reject-new, never evict-live).
+        is_new = number not in alloc.chans
+        if is_new and len(alloc.chans) >= _MAX_CHANS:
+            self._sweep_alloc(alloc, now)
+            is_new = number not in alloc.chans
+            if is_new and len(alloc.chans) >= _MAX_CHANS:
+                self._reply_auth(sock, src, _T_CHAN_E, txn, key,
+                                 [_attr(_A_ERR, _err_attr(508, "Insufficient Capacity"))])
+                return
+        # A bind also creates/refreshes the permission for that peer IP.
+        if alloc.perms.get(ip, -1) < now and len(alloc.perms) >= _MAX_PERMS:
+            self._sweep_alloc(alloc, now)
+            if alloc.perms.get(ip, -1) < now and len(alloc.perms) >= _MAX_PERMS:
+                self._reply_auth(sock, src, _T_CHAN_E, txn, key,
+                                 [_attr(_A_ERR, _err_attr(508, "Insufficient Capacity"))])
+                return
         alloc.chans[number] = (ip, port, now + _CHAN_SECS)
         alloc.rchan[(ip, port)] = number
         alloc.perms[ip] = now + _PERM_SECS  # bind refreshes the permission

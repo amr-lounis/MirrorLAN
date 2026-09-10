@@ -26,6 +26,11 @@ ANSWER_TTL = 90
 # Sharers poll every second, so this is generous; it only bounds memory.
 DEPARTED_TTL = 120
 
+# How often the stale-sharer sweep may run inside _prune_locked (seconds).
+# Sharer entries are few, but this keeps the per-request cost O(1) in the
+# common case: most signaling polls skip the sweep entirely.
+_SHARER_PRUNE_INTERVAL = 5.0
+
 
 def _known_ids(known: object) -> set:
     """Sharer's known viewer ids as a set. Accepts an array of ids or a
@@ -53,6 +58,7 @@ class SignalingStore:
         self._seen: Dict[Tuple[str, str], float] = {}  # (room, id) -> last live touch
         self._departed: Dict[Tuple[str, str], float] = {}  # (room, id) -> left at
         self._sharers: Dict[str, float] = {}  # room -> last heartbeat epoch
+        self._sharers_last_prune: float = 0.0  # monotonic of last stale sweep
         self._events: Deque[Tuple[float, str, str, str, str, object]] = deque(maxlen=120)
 
     def _room(self, room: object) -> str:
@@ -81,7 +87,13 @@ class SignalingStore:
         return vid
 
     def _prune_locked(self) -> None:
-        """Drop dead viewers' offers/answers. Call with _lock held."""
+        """Drop dead viewers' offers/answers. Call with _lock held.
+
+        Also sweeps stale sharer heartbeats, throttled to once per
+        _SHARER_PRUNE_INTERVAL so 1s signaling polls stay O(1). Without
+        this, orphan rooms (closed without leave + no list_rooms call)
+        would accumulate forever on a years-long run.
+        """
         now = time.monotonic()
         for key, seen in list(self._seen.items()):
             if now - seen > OFFER_TTL:
@@ -94,6 +106,12 @@ class SignalingStore:
         for key, left in list(self._departed.items()):
             if now - left > DEPARTED_TTL:
                 self._departed.pop(key, None)
+        if now - self._sharers_last_prune >= _SHARER_PRUNE_INTERVAL:
+            self._sharers_last_prune = now
+            stale = [room for room, seen in self._sharers.items()
+                     if now - seen > self._sharer_timeout]
+            for room in stale:
+                del self._sharers[room]
 
     def put_offer(self, viewer_id: object, sdp: object, room: object = "") -> Tuple[str, str]:
         """Store a viewer offer, dropping any stale answer. Returns (room, id).
@@ -255,6 +273,16 @@ class SignalingStore:
                      "ip": ip, "cands": cands}
                     for (ts, kind, room, vid, ip, cands) in self._events]
 
+    def stats(self) -> dict:
+        """O(1) counters snapshot for /api/stats. No pruning, no side effects."""
+        with self._lock:
+            return {
+                "rooms": len(self._sharers),
+                "offers": len(self._offers),
+                "answers": len(self._answers),
+                "departed": len(self._departed),
+            }
+
     def clear(self) -> None:
         with self._lock:
             self._offers.clear()
@@ -263,4 +291,5 @@ class SignalingStore:
             self._seen.clear()
             self._departed.clear()
             self._sharers.clear()
+            self._sharers_last_prune = 0.0
             self._events.clear()
