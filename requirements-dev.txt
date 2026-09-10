@@ -1,0 +1,3 @@
+# Dev-only dependencies. The app itself runs on stdlib only (Python 3.10+).
+# Installed automatically by build.bat when needed.
+pyinstaller>=6
