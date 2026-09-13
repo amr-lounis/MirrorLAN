@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MirrorLAN core: HTTP server + WebRTC signaling + TURN relay.
+"""MirrorLAN core: HTTP server + WebRTC signaling.
 
 Modules are imported directly (e.g. ``from core.server import ServerManager``);
 nothing is re-exported here on purpose.

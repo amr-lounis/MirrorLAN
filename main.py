@@ -9,13 +9,11 @@ Usage:
     python main.py --serve      run headless server (default port 80)
     python main.py --serve 8081 run headless server on custom port
     python main.py --serve 8081 --dir ./site   serve another folder
-    python main.py --serve --turn-port 0       disable the TURN relay
 
 Layout:
     core/config.py     all settings in one Config dataclass
     core/net.py        local IPs and public URLs
     core/signaling.py  thread-safe viewer offer/answer store
-    core/turn.py       TURN/UDP relay fallback (stdlib only)
     core/server.py     http server + ServerManager
     core/gui.py        Tkinter control panel
     www/               served pages (myshares.html, Viewer.html, ...)
@@ -54,8 +52,6 @@ def parse_args(argv: list) -> tuple:
             config.www_dir = os.path.abspath(rest.pop(0))
         elif flag == "--port" and rest:
             config.port = int(rest.pop(0))
-        elif flag == "--turn-port" and rest:
-            config.turn_port = int(rest.pop(0))
         else:
             raise ValueError("unknown argument: %s" % flag)
     config.validate()
@@ -75,10 +71,6 @@ def run_headless(config: Config) -> int:
         _say(url)
     _say("share from http://localhost:%d/ (browsers block capture on LAN http)"
          % config.port)
-    if manager.turn_ok and manager.turn is not None:
-        _say("turn relay on udp :%d" % manager.turn.bound_port)
-    elif config.turn_port:
-        _say("turn relay off (%s)" % (manager.turn_error or "bind failed"))
     try:
         threading.Event().wait()
     except KeyboardInterrupt:

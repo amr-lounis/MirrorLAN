@@ -17,7 +17,6 @@ from urllib.parse import parse_qs, urlparse
 from .config import Config
 from .net import local_ips, server_urls
 from .signaling import SignalingStore
-from .turn import TurnServer
 
 
 class ServerError(Exception):
@@ -70,10 +69,9 @@ class _CorsMixin:
         self.end_headers()
 
 
-def create_api_handler(store: SignalingStore, www_dir: str,
-                         turn: TurnServer | None = None) -> type:
+def create_api_handler(store: SignalingStore, www_dir: str) -> type:
     """Static files plus /api/offers, /api/claim, /api/answer, /api/offer,
-    /api/leave, /api/rooms, /api/diag, /api/stats, /api/turn,
+    /api/leave, /api/rooms, /api/diag, /api/stats,
     /api/sharer/heartbeat, /api/sharer/leave."""
 
     class ApiHandler(_CorsMixin, SimpleHTTPRequestHandler):
@@ -109,7 +107,10 @@ def create_api_handler(store: SignalingStore, www_dir: str,
                 except Exception:
                     pass
                 try:
-                    self.connection.shutdown(socket.SHUT_RDWR)
+                    # Graceful close: FIN goes out only after the queued
+                    # 503 bytes (SHUT_RDWR here would RST on Windows and the
+                    # client would never see the body).
+                    self.connection.shutdown(socket.SHUT_WR)
                 except Exception:
                     pass
                 try:
@@ -190,34 +191,11 @@ def create_api_handler(store: SignalingStore, www_dir: str,
                 # device to watch for leaks: numbers must stay flat when
                 # the room/viewer count is flat.
                 data = store.stats()
-                if turn is not None:
-                    try:
-                        data.update(turn.stats())
-                    except Exception:
-                        data.update({"allocs": 0, "nonces": 0})
-                    data["turn_running"] = bool(turn.running)
-                else:
-                    data.update({"allocs": 0, "nonces": 0,
-                                 "turn_running": False})
                 try:
                     data["threads"] = threading.active_count()
                 except Exception:
                     pass
                 return self._json(data)
-            if path.path == "/api/turn":
-                # Time-limited TURN credentials for the relay fallback.
-                # The host comes from the request itself, so the turn: URL
-                # always names the interface this client already reaches.
-                if turn is None or not turn.running:
-                    return self._json({"error": "turn unavailable"}, 503)
-                host = (self.headers.get("Host") or "localhost").split(":")[0]
-                user, password = turn.mint_credential()
-                return self._json({
-                    "urls": "turn:%s:%d?transport=udp" % (host, turn.bound_port),
-                    "username": user,
-                    "credential": password,
-                    "ttl": 3600,
-                })
             if path.path == "/api/offers":
                 room = (query.get("room", [""])[0] or "")
                 try:
@@ -285,17 +263,14 @@ def create_api_handler(store: SignalingStore, www_dir: str,
 
 
 class ServerManager:
-    """Owns the HTTP listener, the TURN relay, and the signaling store."""
+    """Owns the HTTP listener and the signaling store."""
 
     def __init__(self, config: Config) -> None:
         self.config = config
         self.store = SignalingStore(config.max_id_len, config.max_sdp_len,
                                     config.max_room_len, config.sharer_timeout)
-        self.turn: TurnServer | None = None
         self._http: ThreadingHTTPServer | None = None
         self._lock = threading.Lock()
-        self.turn_ok = False
-        self.turn_error = ""
 
     @property
     def running(self) -> bool:
@@ -308,48 +283,21 @@ class ServerManager:
                 raise ServerError("already running")
             self.config.validate()
             os.makedirs(self.config.www_dir, exist_ok=True)
-            # TURN relay first: best-effort. If the UDP port is busy the
-            # server still runs — pages fall back to host candidates.
-            self.turn = None
-            self.turn_ok = False
-            self.turn_error = ""
-            if self.config.turn_port:
-                try:
-                    candidate = TurnServer(self.config.turn_port,
-                                           self.config.turn_realm)
-                    candidate.start()
-                    self.turn = candidate
-                    self.turn_ok = True
-                except OSError as exc:
-                    self.turn_error = str(exc)
-            handler = create_api_handler(self.store, self.config.www_dir, self.turn)
+            handler = create_api_handler(self.store, self.config.www_dir)
             try:
                 server = _ThreadedServer(("0.0.0.0", self.config.port), handler)
             except PermissionError:
-                self._drop_turn()  # else the relay sockets leak for the next start
                 raise ServerError("cannot bind port %d (admin/root required)"
                                   % self.config.port)
             except OSError as exc:
-                self._drop_turn()
                 raise ServerError("cannot bind port %d (%s)" % (self.config.port, exc))
             self._http = server
             threading.Thread(target=server.serve_forever, daemon=True).start()
             return server_urls(self.config.port)
 
-    def _drop_turn(self) -> None:
-        """Stop the relay without touching anything else (lock must be held)."""
-        turn, self.turn = self.turn, None
-        self.turn_ok = False
-        if turn is not None:
-            try:
-                turn.stop()
-            except Exception:
-                pass
-
     def stop(self) -> None:
         """Shut everything down and drop all pending signaling state."""
         with self._lock:
-            self._drop_turn()
             if self._http is not None:
                 try:
                     self._http.shutdown()

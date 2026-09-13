@@ -38,8 +38,6 @@ class Config:
     # capture works solely from http://localhost on the sharing PC;
     # other LAN devices can watch but not share.
     port: int = 80
-    turn_port: int = 3478  # TURN/UDP relay fallback (0 = disabled)
-    turn_realm: str = "MirrorLAN"
     www_dir: str = field(default_factory=lambda: _resource("www"))
     max_id_len: int = 64
     max_sdp_len: int = 200000
@@ -50,8 +48,6 @@ class Config:
         """Raise ValueError if any setting is invalid."""
         if not isinstance(self.port, int) or not 1 <= self.port <= 65535:
             raise ValueError("port must be 1-65535, got %r" % (self.port,))
-        if not isinstance(self.turn_port, int) or not 0 <= self.turn_port <= 65535:
-            raise ValueError("turn_port must be 0-65535, got %r" % (self.turn_port,))
         if self.max_sdp_len <= 0 or self.max_id_len <= 0 or self.max_room_len <= 0:
             raise ValueError("limits must be positive")
         if self.sharer_timeout <= 0:

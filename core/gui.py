@@ -63,7 +63,7 @@ class ServerGui:
         card = self._card(root)
         tk.Label(card, text="SERVER", font=SMALL, bg=CARD, fg=MUTED).pack(anchor="w")
         row = tk.Frame(card, bg=CARD)
-        row.pack(fill="x", pady=(8, 4))
+        row.pack(fill="x", pady=(8, 10))
         tk.Label(row, text="Port", font=FONT, bg=CARD, fg=FG).pack(side="left")
         self.port = tk.Entry(row, width=8, font=FONT, bg=FIELD, fg=FG,
                              insertbackground=FG, relief="flat",
@@ -72,17 +72,6 @@ class ServerGui:
         self.port.pack(side="left", padx=(8, 0), ipady=4)
         tk.Label(row, text="share from localhost", font=SMALL, bg=CARD,
                  fg=MUTED).pack(side="right")
-        row2 = tk.Frame(card, bg=CARD)
-        row2.pack(fill="x", pady=(0, 10))
-        tk.Label(row2, text="TURN", font=FONT, bg=CARD, fg=FG).pack(side="left")
-        self.turn_port = tk.Entry(row2, width=8, font=FONT, bg=FIELD, fg=FG,
-                                  insertbackground=FG, relief="flat",
-                                  highlightthickness=1, highlightbackground=BORDER)
-        self.turn_port.insert(0, str(self.config.turn_port))
-        self.turn_port.pack(side="left", padx=(8, 0), ipady=4)
-        self.relay_state = tk.Label(row2, text="relay: UDP :%s (0 = off)" % self.config.turn_port,
-                                    font=SMALL, bg=CARD, fg=MUTED)
-        self.relay_state.pack(side="right")
         self.btn_power = tk.Button(card, text="Start Server", font=("Segoe UI", 11, "bold"),
                                    bg=GREEN, fg="#04120a", activebackground=GREEN_DARK,
                                    activeforeground="#04120a", relief="flat",
@@ -145,7 +134,6 @@ class ServerGui:
 
     def _set_running(self, running: bool) -> None:
         self.port.config(state="disabled" if running else "normal")
-        self.turn_port.config(state="disabled" if running else "normal")
         self.btn_power.config(
             text="Stop Server" if running else "Start Server",
             bg=RED if running else GREEN,
@@ -249,20 +237,6 @@ class ServerGui:
             pass
         self._update_scroll_visibility()
 
-    def _paint_relay(self) -> None:
-        if self.manager.running and self.manager.turn_ok and self.manager.turn is not None:
-            self.relay_state.config(
-                text="relay: on UDP :%d" % self.manager.turn.bound_port, fg=GREEN)
-        elif self.manager.running:
-            err = self.manager.turn_error or "off"
-            self.relay_state.config(text="relay: off (%s)" % err, fg=RED)
-        else:
-            try:
-                hint = self.turn_port.get().strip() or str(self.config.turn_port)
-            except Exception:
-                hint = str(self.config.turn_port)
-            self.relay_state.config(text="relay: UDP :%s (0 = off)" % hint, fg=MUTED)
-
     # -- actions ---------------------------------------------------------
     def toggle(self) -> None:
         if self.manager.running:
@@ -277,12 +251,7 @@ class ServerGui:
         if not (raw.isdigit() and 1 <= int(raw) <= 65535):
             self.say("Invalid port (1-65535).", RED)
             return
-        raw_turn = self.turn_port.get().strip()
-        if not (raw_turn.isdigit() and 0 <= int(raw_turn) <= 65535):
-            self.say("Invalid TURN port (0-65535, 0 = off).", RED)
-            return
         self.config.port = int(raw)
-        self.config.turn_port = int(raw_turn)
         try:
             urls = self.manager.start()
         except (ValueError, ServerError) as exc:
@@ -290,14 +259,11 @@ class ServerGui:
             return
         self._rebuild_rows(urls)
         self._set_running(True)
-        self._paint_relay()
-        note = "" if self.manager.turn_ok else " (turn relay off)"
-        self.say("Serving ./www on port %s%s. Share from localhost." % (raw, note), GREEN)
+        self.say("Serving ./www on port %s. Share from localhost." % raw, GREEN)
 
     def stop(self) -> None:
         self.manager.stop()
         self._set_running(False)
-        self._paint_relay()
         self.say("Server stopped.")
 
     def copy_all(self) -> None:

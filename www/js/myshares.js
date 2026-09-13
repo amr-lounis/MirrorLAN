@@ -81,8 +81,8 @@ async function pollOffers(card){
 async function serveViewer(card, id, offerSdp){
   try{
     const offCands = countCands(offerSdp);
-    log('[' + card.room + '] offer from ' + id + ' (' + offCands + ' remote, ' + relayCount(offerSdp) + ' relay cands)');
-    const pc = new RTCPeerConnection({ iceServers: await getIceServers() });
+    log('[' + card.room + '] offer from ' + id + ' (' + offCands + ' remote cands)');
+    const pc = new RTCPeerConnection();
     card.pcs[id] = pc;
     card.stream.getTracks().forEach(t => pc.addTrack(t, card.stream));
     pc.oniceconnectionstatechange = () => {
@@ -119,7 +119,7 @@ async function serveViewer(card, id, offerSdp){
     const ansCands = countCands(ansSdp);
     await fetch('api/answer', { method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ id, sdp: ansSdp, room: card.room, cands: ansCands }) });
-    log('[' + card.room + '] serving viewer ' + id + ' (' + ansCands + ' local, ' + relayCount(ansSdp) + ' relay candidates)');
+    log('[' + card.room + '] serving viewer ' + id + ' (' + ansCands + ' local candidates)');
     if(mdnsOnly(offerSdp) && mdnsOnly(ansSdp))
       log('[' + card.room + '] viewer ' + id + ' mDNS-only both ends - needs UDP 5353 multicast');
     else if(mdnsOnly(ansSdp))

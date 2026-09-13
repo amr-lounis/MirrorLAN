@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end HTTP tests for the signaling API in core/server.py.
 
-Spins a real _ThreadedServer with create_api_handler (no TURN) and drives
+Spins a real _ThreadedServer with create_api_handler and drives
 the exact viewer -> sharer handshake the JS pages use:
 offer -> claim -> answer -> answer-poll, plus rooms/heartbeat/leave,
 full-room claim_known, gone reporting, validation, limits and headers.
@@ -75,7 +75,7 @@ class TestSignalingApi(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.store = SignalingStore()
-        handler = create_api_handler(cls.store, cls.tmp.name, None)
+        handler = create_api_handler(cls.store, cls.tmp.name)
         cls.server = _ThreadedServer(("127.0.0.1", 0), handler)
         cls.port = cls.server.server_address[1]
         cls.thread = threading.Thread(target=cls.server.serve_forever,
@@ -259,12 +259,10 @@ class TestSignalingApi(unittest.TestCase):
         st, headers, body = _get(p, "/api/stats")
         self.assertEqual(st, 200)
         data = _json(body)
-        for key in ("rooms", "offers", "answers", "departed",
-                    "allocs", "nonces", "turn_running", "threads"):
+        for key in ("rooms", "offers", "answers", "departed", "threads"):
             self.assertIn(key, data, key)
         self.assertEqual(data["rooms"], 1)
         self.assertEqual(data["offers"], 1)
-        self.assertEqual(data["turn_running"], False)
         self.assertGreaterEqual(data["threads"], 1)
         self.assertEqual(headers.get("Cache-Control"), "no-store")
         self.assertEqual(headers.get("Access-Control-Allow-Origin"), "*")
@@ -275,14 +273,14 @@ class TestSignalingApi(unittest.TestCase):
     def test_handler_timeout_is_bounded(self):
         from core.server import _HANDLER_TIMEOUT, create_api_handler as _mk
 
-        handler = _mk(SignalingStore(), tempfile.gettempdir(), None)
+        handler = _mk(SignalingStore(), tempfile.gettempdir())
         self.assertEqual(handler.timeout, _HANDLER_TIMEOUT)
         self.assertLessEqual(handler.timeout, 30)
 
     def test_overload_gate_returns_503_and_recovers(self):
         from core.server import _MAX_CONNS, create_api_handler as _mk
 
-        handler = _mk(SignalingStore(), tempfile.gettempdir(), None)
+        handler = _mk(SignalingStore(), tempfile.gettempdir())
         tmp_srv = _ThreadedServer(("127.0.0.1", 0), handler)
         port = tmp_srv.server_address[1]
         thread = threading.Thread(target=tmp_srv.serve_forever, daemon=True)
@@ -314,9 +312,9 @@ class TestSignalingApi(unittest.TestCase):
 
 
 class TestManagerApiIntegration(unittest.TestCase):
-    """ServerManager with the TURN relay disabled still serves the API."""
+    """ServerManager serves the signaling API over plain HTTP."""
 
-    def test_manager_turn_off_serves_signaling(self):
+    def test_manager_serves_signaling(self):
         import os
         import socket
 
@@ -334,57 +332,20 @@ class TestManagerApiIntegration(unittest.TestCase):
             cfg = Config()
             cfg.www_dir = www
             cfg.port = http_port
-            cfg.turn_port = 0  # relay disabled
             mgr = ServerManager(cfg)
             mgr.start()
             try:
-                self.assertFalse(mgr.turn_ok)
                 st, _, body = _post(http_port, "/api/offer",
                                     {"id": "v-1", "sdp": "s", "room": "m"})
                 self.assertEqual(st, 200)
                 st, _, body = _post(http_port, "/api/claim",
                                     {"room": "m", "known": []})
                 self.assertEqual(_json(body)["id"], "v-1")
-                # /api/turn is 503 so pages fall back to host candidates
-                st, _, _ = _get(http_port, "/api/turn")
-                self.assertEqual(st, 503)
-            finally:
-                mgr.stop()
-        finally:
-            tmp.cleanup()
-
-    def test_manager_stats_reports_turn(self):
-        import os
-        import socket
-
-        from core.config import Config
-        from core.server import ServerManager
-
-        tmp = tempfile.TemporaryDirectory()
-        try:
-            www = os.path.join(tmp.name, "www")
-            os.makedirs(www)
-            tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            tcp.bind(("127.0.0.1", 0))
-            http_port = tcp.getsockname()[1]
-            tcp.close()
-            udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            udp.bind(("127.0.0.1", 0))
-            turn_port = udp.getsockname()[1]
-            udp.close()
-            cfg = Config()
-            cfg.www_dir = www
-            cfg.port = http_port
-            cfg.turn_port = turn_port
-            mgr = ServerManager(cfg)
-            mgr.start()
-            try:
                 st, _, body = _get(http_port, "/api/stats")
                 self.assertEqual(st, 200)
                 data = _json(body)
-                self.assertTrue(data["turn_running"])
-                self.assertGreaterEqual(data["allocs"], 0)
-                self.assertGreaterEqual(data["nonces"], 0)
+                self.assertEqual(data["offers"], 0)
+                self.assertGreaterEqual(data["threads"], 1)
             finally:
                 mgr.stop()
         finally:
