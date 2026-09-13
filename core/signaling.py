@@ -159,13 +159,12 @@ class SignalingStore:
         name = self._room(room)
         with self._lock:
             self._prune_locked()
-            for key in self._offers:
-                if key[0] == name:
-                    vid = key[1]
-                    blob = self._offers.pop(key)
-                    self._departed.pop(key, None)
-                    return vid, blob
-        return None
+            found = next((key for key in self._offers if key[0] == name), None)
+            if found is None:
+                return None
+            blob = self._offers.pop(found)
+            self._departed.pop(found, None)
+            return found[1], blob
 
     def claim_known(self, room: object = "", known: object = None) -> Tuple[str, str] | None:
         """Pop the first pending offer from an already-known viewer id.
@@ -180,13 +179,13 @@ class SignalingStore:
             return None
         with self._lock:
             self._prune_locked()
-            for key in self._offers:
-                if key[0] == name and key[1] in wanted:
-                    vid = key[1]
-                    blob = self._offers.pop(key)
-                    self._departed.pop(key, None)
-                    return vid, blob
-        return None
+            found = next((key for key in self._offers
+                          if key[0] == name and key[1] in wanted), None)
+            if found is None:
+                return None
+            blob = self._offers.pop(found)
+            self._departed.pop(found, None)
+            return found[1], blob
 
     def check_departed(self, room: object = "", known: object = None) -> List[str]:
         """Ids from the sharer's known viewers that left the room."""

@@ -273,8 +273,12 @@ class ServerGui:
         self._to_clipboard(self._urls)
 
     def _to_clipboard(self, lines: list) -> None:
-        self.root.clipboard_clear()
-        self.root.clipboard_append("\n".join(lines))
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append("\n".join(lines))
+        except tk.TclError:
+            self.say("Copy failed - clipboard is busy, try again.", RED)
+            return
         self.say("Copied %d address(es)." % len(lines), GREEN)
 
     def close(self) -> None:

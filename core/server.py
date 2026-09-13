@@ -282,7 +282,11 @@ class ServerManager:
             if self._http is not None:
                 raise ServerError("already running")
             self.config.validate()
-            os.makedirs(self.config.www_dir, exist_ok=True)
+            try:
+                os.makedirs(self.config.www_dir, exist_ok=True)
+            except OSError as exc:
+                raise ServerError("cannot use www_dir %s (%s)"
+                                  % (self.config.www_dir, exc))
             handler = create_api_handler(self.store, self.config.www_dir)
             try:
                 server = _ThreadedServer(("0.0.0.0", self.config.port), handler)

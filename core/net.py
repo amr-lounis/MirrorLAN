@@ -17,10 +17,9 @@ def local_ips() -> List[str]:
     except Exception:
         pass
     try:
-        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        probe.connect(("8.8.8.8", 80))  # no traffic sent, only route lookup
-        addr = probe.getsockname()[0]
-        probe.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("8.8.8.8", 80))  # no traffic sent, only route lookup
+            addr = probe.getsockname()[0]
         if addr not in out:
             out.insert(0, addr)
     except Exception:
